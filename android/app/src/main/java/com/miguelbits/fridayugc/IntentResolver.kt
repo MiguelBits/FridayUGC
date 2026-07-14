@@ -83,10 +83,7 @@ class IntentResolver(
                 StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
             )
         }
-        val hasHomeTabs = screen.elements.any {
-            val t = it.text.lowercase()
-            t.contains("for you") || t.contains("following")
-        }
+        val hasHomeTabs = ScreenClassifier.hasHomeFeedTabs(screen)
         val activityLower = screenState.activityClass.lowercase()
         val activityReels = activityLower.contains("clips") ||
             (activityLower.contains("reel") && !activityLower.contains("profile"))
@@ -94,8 +91,9 @@ class IntentResolver(
             val t = it.text.lowercase()
             t.contains("reels") && t.contains("selected")
         }
-        val onReels = tracker.reelsTabOpened && !hasHomeTabs &&
-            (activityReels || reelsNavSelected || screenState.screenType == "reels_viewer")
+        val onReels = !hasHomeTabs && screenState.screenType != "home_feed" &&
+            (activityReels || reelsNavSelected || screenState.screenType == "reels_viewer") &&
+            (tracker.reelsTabOpened || activityReels || reelsNavSelected || screenState.screenType == "reels_viewer")
         if (onReels) {
             return ResolveResult(
                 StepResponse(
@@ -128,7 +126,7 @@ class IntentResolver(
                     "tab" to JsonPrimitive("reels"),
                     "ui_key" to JsonPrimitive("nav_reels"),
                 ),
-                reason = "enter_reels — a11y / deep link (no swipe RIGHT; LEFT only via ReelsEntry)",
+                reason = "enter_reels — a11y / deep link / nav coords (no swipe RIGHT)",
             ),
             uiKey = "nav_reels",
         )
@@ -152,6 +150,7 @@ class IntentResolver(
         screen: Screen,
         screenState: ScreenState,
         screenshotB64: String?,
+        somMarks: List<SomMark> = emptyList(),
         forceVision: Boolean = false,
     ): ResolveResult {
         if (screenState.screenType == "comments_sheet") {
@@ -195,6 +194,7 @@ class IntentResolver(
             screenState = screenState,
             rowIndex = 0,
             screenshotB64 = screenshotB64,
+            somMarks = somMarks,
             fallbackAction = "tap",
         )
     }
@@ -203,6 +203,7 @@ class IntentResolver(
         screen: Screen,
         tracker: SessionTracker,
         screenshotB64: String?,
+        somMarks: List<SomMark> = emptyList(),
         forceVision: Boolean = false,
     ): ResolveResult {
         if (tracker.commentLikesThisReel >= tracker.commentLikesPerReel) {
@@ -258,6 +259,7 @@ class IntentResolver(
             screenState = ScreenState(screenType = "comments_sheet"),
             rowIndex = row,
             screenshotB64 = screenshotB64,
+            somMarks = somMarks,
             fallbackAction = "like_comment",
         )
     }

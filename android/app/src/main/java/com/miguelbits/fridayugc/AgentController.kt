@@ -3,6 +3,7 @@ package com.miguelbits.fridayugc
 import com.miguelbits.fridayugc.model.AgentProgress
 import com.miguelbits.fridayugc.model.LastResult
 import com.miguelbits.fridayugc.model.SessionBudget
+import com.miguelbits.fridayugc.model.ScreenState
 import com.miguelbits.fridayugc.model.StepRequest
 import com.miguelbits.fridayugc.model.StepResponse
 import kotlinx.coroutines.CoroutineScope
@@ -192,6 +193,9 @@ class AgentController(
                 base = svc.readScreen().copy(activity = svc.currentActivityClass())
                 screenState = ScreenClassifier.classify(base, svc.currentActivityClass())
                 tracker.reelsTabOpened = false
+            }
+            if (wantsCommentLikes) {
+                syncReelsTabState(base, screenState)
             }
             val fingerprint = ScreenValidator.fingerprint(base)
             val stale = ScreenValidator.isStale(lastFingerprint, fingerprint)
@@ -420,14 +424,32 @@ class AgentController(
             MotorPolicy.clampCommentLikes(resp, tracker.reelsTabOpened, screenType)?.let { toExecute = it }
         }
         if (isStuckEnteringReels(history, wantsCommentLikes)) {
-            onSay("Stuck on home — forcing Reels entry…")
-            toExecute = StepResponse(
-                action = "navigate",
-                params = mapOf(
-                    "tab" to JsonPrimitive("reels"),
-                    "ui_key" to JsonPrimitive("nav_reels"),
+            onSay("Stuck on home — full Reels entry recovery…")
+            val entry = ReelsEntry.enter(svc, memoryStore) { onSay(it) }
+            tracker.reelsTabOpened = entry.reelsTabOpened
+            history.add("reels_entry(recovery)")
+            return StepOutcome(
+                null,
+                LastResult(
+                    action = "navigate",
+                    ok = entry.ok,
+                    error = if (entry.ok) null else "reels entry recovery incomplete",
+                    verified = if (entry.reelsTabOpened) "verified" else "unverified",
                 ),
-                reason = "stuck_breaker enter_reels",
+            )
+        } else if (isStuckOnWait(history, wantsCommentLikes, screen, svc)) {
+            onSay("Wait loop on home — forcing Reels entry…")
+            tracker.reelsTabOpened = false
+            val entry = ReelsEntry.enter(svc, memoryStore) { onSay(it) }
+            tracker.reelsTabOpened = entry.reelsTabOpened
+            history.add("reels_entry(wait-break)")
+            return StepOutcome(
+                null,
+                LastResult(
+                    action = "navigate",
+                    ok = entry.ok,
+                    verified = if (entry.reelsTabOpened) "verified" else "unverified",
+                ),
             )
         } else if (resp.action == "intent") {
             var shot = screen.screenshotB64
@@ -441,27 +463,40 @@ class AgentController(
                 lastIntentUiKey != null && intentName in setOf("open_comments", "engage_comments")
             if (prevUnverified && lastIntentReground < 2) {
                 onSay("Previous intent tap unverified — re-grounding via vision…")
-                val b64 = ScreenCapture.captureBase64(svc)
-                if (b64 != null) {
-                    shot = b64
+                val cap = ScreenCapture.captureForGrounding(
+                    svc,
+                    screen,
+                    useSom = FridayPreferences.somEnabled(svc.applicationContext),
+                )
+                if (cap != null) {
+                    shot = cap.screenshotB64
                     resolved = intentResolver.resolve(
                         resp,
-                        screen.copy(screenshotB64 = b64),
+                        screen.copy(screenshotB64 = cap.screenshotB64),
                         ScreenClassifier.classify(screen, svc.currentActivityClass()),
                         tracker,
-                        b64,
+                        screenshotB64 = cap.screenshotB64,
+                        somMarks = cap.somMarks,
                         forceVision = true,
                     )
                     lastIntentReground += 1
                 }
             } else if (resolved.needsScreenshot) {
                 onSay("Intent needs vision — grounding with Gemma…")
-                val b64 = ScreenCapture.captureBase64(svc)
-                if (b64 != null) {
-                    shot = b64
+                val cap = ScreenCapture.captureForGrounding(
+                    svc,
+                    screen,
+                    useSom = FridayPreferences.somEnabled(svc.applicationContext),
+                )
+                if (cap != null) {
+                    shot = cap.screenshotB64
                     resolved = intentResolver.resolve(
-                        resp, screen.copy(screenshotB64 = b64),
-                        ScreenClassifier.classify(screen, svc.currentActivityClass()), tracker, b64,
+                        resp,
+                        screen.copy(screenshotB64 = cap.screenshotB64),
+                        ScreenClassifier.classify(screen, svc.currentActivityClass()),
+                        tracker,
+                        screenshotB64 = cap.screenshotB64,
+                        somMarks = cap.somMarks,
                     )
                 }
             }
@@ -600,12 +635,37 @@ class AgentController(
         )
     }
 
+    private fun syncReelsTabState(screen: com.miguelbits.fridayugc.model.Screen, state: ScreenState) {
+        if (ScreenClassifier.hasHomeFeedTabs(screen) || state.screenType == "home_feed") {
+            tracker.reelsTabOpened = false
+            return
+        }
+        if (ScreenClassifier.likelyReelsSurface(state, screen)) {
+            tracker.reelsTabOpened = true
+        }
+    }
+
     private fun isStuckEnteringReels(history: List<String>, wantsCommentLikes: Boolean): Boolean {
         if (!wantsCommentLikes || history.size < 4) return false
         val tail = history.takeLast(4)
-        // "swipe" intentionally omitted — enter_reels must not swipe.
         val idle = setOf("wait", "navigate", "intent(ground-failed)")
-        return tail.count { it in idle || it.startsWith("navigate") } >= 3 && !tracker.reelsTabOpened
+        return tail.count { it in idle || it.startsWith("navigate") || it.startsWith("reels_entry") } >= 3 &&
+            !tracker.reelsTabOpened
+    }
+
+    private fun isStuckOnWait(
+        history: List<String>,
+        wantsCommentLikes: Boolean,
+        screen: com.miguelbits.fridayugc.model.Screen,
+        svc: FridayAccessibilityService,
+    ): Boolean {
+        if (!wantsCommentLikes || history.size < 3) return false
+        val tail = history.takeLast(3)
+        if (!tail.all { it == "wait" }) return false
+        val state = ScreenClassifier.classify(screen, svc.currentActivityClass())
+        return ScreenClassifier.hasHomeFeedTabs(screen) ||
+            state.screenType == "home_feed" ||
+            !ScreenClassifier.likelyReelsSurface(state, screen)
     }
 
     private val instagramVisionScreens = setOf(
