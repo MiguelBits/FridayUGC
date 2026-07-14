@@ -47,6 +47,8 @@ brain/data/runs/*.json
 brain/data/inbox/
 brain/data/gallery/manifest.json
 brain/data/**/*.db
+brain/data/**/*.db-shm
+brain/data/**/*.db-wal
 brain/data/**/*.sqlite
 brain/data/**/*.sqlite3
 
