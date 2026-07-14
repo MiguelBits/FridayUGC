@@ -1,4 +1,4 @@
-"""Deterministic playbook — zone constants match Android CommentLikesRoutine."""
+"""Recovery playbook — a11y binding only; vision via intent when tree is sparse."""
 
 from __future__ import annotations
 
@@ -6,12 +6,8 @@ from .actions import Screen, ScreenState, StepRequest, StepResponse
 from .perception import on_comments_sheet, on_reels_surface
 from .prompt import ctx_int, goal_wants_comment_likes
 
-# Reels rail: like ~48% y, comments ~61% y. Sheet hearts: y > 55%.
 REEL_LIKE_Y_MAX = 0.54
-COMMENTS_ICON_Y = 0.58
-RAIL_X = 0.92
 SHEET_MIN_Y = 0.55
-COMMENT_HEART_X = 0.86
 
 
 def _screen_size(screen: Screen) -> tuple[int, int]:
@@ -23,12 +19,11 @@ def _screen_size(screen: Screen) -> tuple[int, int]:
 
 
 def find_comments_target(screen: Screen) -> dict:
+    """Comments bubble — element id from a11y only."""
     w, h = _screen_size(screen)
-    if w == 0 or h == 0:
-        return {"x": 980, "y": 1100}
-    min_y = int(h * REEL_LIKE_Y_MAX)
-    max_y = int(h * 0.72)
-    min_x = int(w * 0.78)
+    min_y = int(h * REEL_LIKE_Y_MAX) if h else 0
+    max_y = int(h * 0.72) if h else 0
+    min_x = int(w * 0.78) if w else 0
     for e in screen.elements:
         if not e.clickable:
             continue
@@ -37,16 +32,16 @@ def find_comments_target(screen: Screen) -> dict:
         cy = e.y + e.h // 2
         if "comment" in t:
             return {"target_id": e.id}
-        if cx >= min_x and min_y <= cy <= max_y:
+        if w > 0 and h > 0 and cx >= min_x and min_y <= cy <= max_y:
             return {"target_id": e.id}
-    return {"x": int(w * RAIL_X), "y": int(h * COMMENTS_ICON_Y)}
+    return {}
 
 
 def find_comment_heart_target(screen: Screen, liked_this_reel: int) -> dict:
+    """Comment row heart — element id from a11y only."""
     w, h = _screen_size(screen)
     if w == 0 or h == 0:
-        row = min(liked_this_reel, 4)
-        return {"x": 980, "y": int(2400 * (SHEET_MIN_Y + 0.07 * row + 0.03))}
+        return {}
     sheet_min_y = int(h * SHEET_MIN_Y)
     reel_max_y = int(h * REEL_LIKE_Y_MAX)
     candidates: list[tuple[int, int]] = []
@@ -68,11 +63,7 @@ def find_comment_heart_target(screen: Screen, liked_this_reel: int) -> dict:
         candidates.sort(key=lambda item: item[1])
         idx = min(liked_this_reel, len(candidates) - 1)
         return {"target_id": candidates[idx][0]}
-    row = min(liked_this_reel, 4)
-    return {
-        "x": int(w * COMMENT_HEART_X),
-        "y": int(h * (SHEET_MIN_Y + 0.07 * row + 0.03)),
-    }
+    return {}
 
 
 def comment_likes_kickstart(req: StepRequest, state: ScreenState) -> StepResponse | None:
@@ -87,11 +78,31 @@ def comment_likes_kickstart(req: StepRequest, state: ScreenState) -> StepRespons
     if ctx_int(ctx, "comment_likes_this_reel") > 0:
         return None
     params = find_comments_target(req.screen)
+    if params:
+        return StepResponse(
+            action="tap",
+            params=params,
+            say="Opening comments on this reel.",
+            reason="playbook recovery — a11y comments target",
+            done=False,
+            needs_screenshot=False,
+            approval_required=False,
+        )
+    if not (req.screen.screenshot_b64 or "").strip():
+        return StepResponse(
+            action="intent",
+            params={"name": "open_comments"},
+            say="Need vision to open comments.",
+            reason="playbook recovery — request screenshot for grounding",
+            done=False,
+            needs_screenshot=True,
+            approval_required=False,
+        )
     return StepResponse(
-        action="tap",
-        params=params,
-        say="Opening comments on this reel.",
-        reason="playbook open_comments — below reel-like zone",
+        action="intent",
+        params={"name": "open_comments"},
+        say="Opening comments via vision.",
+        reason="playbook recovery — ground comments icon",
         done=False,
         needs_screenshot=False,
         approval_required=False,
@@ -110,19 +121,29 @@ def comment_likes_like_hearts(req: StepRequest, state: ScreenState) -> StepRespo
         return StepResponse(
             action="press",
             params={"key": "back"},
-            say="Closing comments — 5 likes done.",
-            reason="playbook close_comments",
+            say="Closing comments — per-reel budget met.",
+            reason="playbook recovery — close comments",
             done=False,
             needs_screenshot=False,
             approval_required=False,
         )
     params = find_comment_heart_target(req.screen, this_reel)
+    if params:
+        return StepResponse(
+            action="like_comment",
+            params=params,
+            say=f"Liking comment {this_reel + 1}/{per_reel}.",
+            reason="playbook recovery — a11y heart",
+            done=False,
+            needs_screenshot=False,
+            approval_required=False,
+        )
     return StepResponse(
-        action="like_comment",
-        params=params,
-        say=f"Liking comment {this_reel + 1}/{per_reel}.",
-        reason="playbook in_comments — sheet heart only",
+        action="intent",
+        params={"name": "engage_comments"},
+        say="Finding comment hearts via vision.",
+        reason="playbook recovery — ground comment heart",
         done=False,
-        needs_screenshot=False,
+        needs_screenshot=not bool((req.screen.screenshot_b64 or "").strip()),
         approval_required=False,
     )

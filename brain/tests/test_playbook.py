@@ -55,7 +55,7 @@ def test_like_hearts_on_comments_sheet():
     kick = comment_likes_like_hearts(req, resolve_state(req))
     assert kick is not None
     assert kick.action == "like_comment"
-    assert kick.params.get("target_id") == 1 or "x" in kick.params
+    assert "target_id" in kick.params
 
 
 def test_kickstart_tap_comments_on_reels():
@@ -71,5 +71,6 @@ def test_kickstart_tap_comments_on_reels():
     )
     kick = comment_likes_kickstart(req, resolve_state(req))
     assert kick is not None
-    assert kick.action == "tap"
-    assert "x" in kick.params or "target_id" in kick.params
+    assert kick.action == "intent"
+    assert kick.params.get("name") == "open_comments"
+    assert kick.needs_screenshot is True
