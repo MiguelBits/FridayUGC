@@ -1,0 +1,309 @@
+package com.miguelbits.fridayugc
+
+import android.graphics.Rect
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.content.Intent
+import android.graphics.Path
+import android.net.Uri
+import android.os.Bundle
+import android.view.accessibility.AccessibilityNodeInfo
+import com.miguelbits.fridayugc.model.StepResponse
+import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonPrimitive
+
+/** Executes all UGC operator actions on Instagram via Accessibility. */
+class ActionExecutor(private val service: AccessibilityService) {
+
+    data class Result(val ok: Boolean, val error: String? = null)
+
+    private fun root(): AccessibilityNodeInfo? = service.rootInActiveWindow
+
+    private fun intParam(resp: StepResponse, key: String): Int? =
+        resp.params[key]?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() }
+
+    private fun strParam(resp: StepResponse, key: String): String? =
+        resp.params[key]?.let { (it as? JsonPrimitive)?.content }
+
+    suspend fun execute(resp: StepResponse): Result = when (resp.action) {
+        "tap" -> tap(resp)
+        "scroll" -> scroll(resp)
+        "swipe" -> swipe(resp)
+        "type" -> type(resp)
+        "press" -> press(resp)
+        "open_app" -> openApp(resp)
+        "navigate" -> navigate(resp)
+        "wait" -> {
+            delay((intParam(resp, "ms") ?: 1000).toLong().coerceIn(200, 8000))
+            Result(true)
+        }
+        "like", "like_story", "like_comment", "view_story", "save", "follow", "unfollow" -> tap(resp)
+        "comment" -> comment(resp)
+        "dm" -> dm(resp)
+        "post" -> post(resp)
+        "done", "fail" -> Result(true)
+        else -> Result(false, "unknown action ${resp.action}")
+    }
+
+    private suspend fun tap(resp: StepResponse): Result {
+        val id = intParam(resp, "target_id")
+        if (id != null) {
+            val node = ScreenReader.nodeAt(root(), id) ?: return Result(false, "no node $id")
+            val clickable = node.findClickableAncestor() ?: node
+            if (clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return Result(true)
+            val rect = Rect()
+            clickable.getBoundsInScreen(rect)
+            if (!rect.isEmpty) {
+                val ok = GestureHelper.tap(service, rect.centerX(), rect.centerY())
+                delay(300)
+                return Result(ok, if (ok) null else "gesture tap failed")
+            }
+            return Result(false, "click failed")
+        }
+        val x = intParam(resp, "x"); val y = intParam(resp, "y")
+        return if (x != null && y != null) {
+            val ok = GestureHelper.tap(service, x, y)
+            delay(200)
+            Result(ok, if (ok) null else "gesture tap failed")
+        } else Result(false, "tap needs target_id or x,y")
+    }
+
+    private suspend fun tapIndex(index: Int): Result =
+        tap(StepResponse(action = "tap", params = mapOf("target_id" to JsonPrimitive(index))))
+
+    private suspend fun navigate(resp: StepResponse): Result {
+        val tab = strParam(resp, "tab")?.lowercase() ?: return Result(false, "navigate needs tab")
+        val keywords = when (tab) {
+            "reels" -> arrayOf("reels", "reel", "clips", "vídeos", "videos", "id:clips", "id:reel")
+            "home" -> arrayOf("home", "feed", "id:feed", "id:home")
+            "search" -> arrayOf("search", "explore", "id:search")
+            "profile" -> arrayOf("profile", "id:profile")
+            "inbox" -> arrayOf("messages", "inbox", "direct", "id:direct")
+            "activity" -> arrayOf("activity", "notifications", "heart")
+            "create" -> arrayOf("create", "new post", "camera", "id:creation")
+            else -> arrayOf(tab)
+        }
+        val r = root()
+        val screenH = service.resources.displayMetrics.heightPixels
+        val idx = ScreenReader.indexByText(r, *keywords)
+            ?: ScreenReader.indexBottomNavTab(r, tab, screenH)
+        if (idx != null) return tapIndex(idx)
+
+        if (tab == "reels") {
+            openReelsViaIntent()?.let { return it }
+            return tapBottomNavCoordinate("reels")
+        }
+        return Result(false, "tab not found: $tab")
+    }
+
+    /** Fallback when Reels tab has no accessible label (common on Instagram). */
+    private fun openReelsViaIntent(): Result? {
+        val pkg = resolveInstagramPackage() ?: return null
+        for (uri in listOf("https://www.instagram.com/reels/", "instagram://reels")) {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uri)).apply {
+                    setPackage(pkg)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                service.startActivity(intent)
+                return Result(true)
+            } catch (_: Exception) {
+                continue
+            }
+        }
+        return null
+    }
+
+    private fun tapBottomNavCoordinate(tab: String): Result {
+        val dm = service.resources.displayMetrics
+        val y = (dm.heightPixels * 0.93f).toInt()
+        val x = when (tab) {
+            "home" -> dm.widthPixels * 0.10f
+            "reels" -> dm.widthPixels * 0.30f
+            "create" -> dm.widthPixels * 0.50f
+            "search" -> dm.widthPixels * 0.70f
+            "profile" -> dm.widthPixels * 0.90f
+            else -> return Result(false, "no coordinate map for $tab")
+        }.toInt()
+        tapAt(x, y)
+        return Result(true)
+    }
+
+    private suspend fun comment(resp: StepResponse): Result {
+        val text = strParam(resp, "text").orEmpty()
+        intParam(resp, "target_id")?.let { tapIndex(it); delay(600) }
+        val editIdx = ScreenReader.indexByText(root(), "comment", "add a comment", "write")
+        if (editIdx != null) {
+            type(StepResponse("type", mapOf(
+                "target_id" to JsonPrimitive(editIdx),
+                "text" to JsonPrimitive(text),
+            )))
+        }
+        delay(400)
+        val sendIdx = ScreenReader.indexByText(root(), "post", "send", "reply")
+        return if (sendIdx != null) tapIndex(sendIdx) else Result(false, "send button not found")
+    }
+
+    private suspend fun dm(resp: StepResponse): Result {
+        val handle = strParam(resp, "handle")?.removePrefix("@").orEmpty()
+        val text = strParam(resp, "text").orEmpty()
+        if (handle.isNotBlank()) {
+            ScreenReader.indexByText(root(), handle)?.let { tapIndex(it); delay(700) }
+        }
+        val editIdx = ScreenReader.indexByText(root(), "message", "write a message")
+            ?: intParam(resp, "target_id")
+        if (editIdx == null) return Result(false, "dm field not found")
+        type(StepResponse("type", mapOf(
+            "target_id" to JsonPrimitive(editIdx),
+            "text" to JsonPrimitive(text),
+        )))
+        delay(400)
+        val sendIdx = ScreenReader.indexByText(root(), "send")
+        return if (sendIdx != null) tapIndex(sendIdx) else Result(false, "dm send not found")
+    }
+
+    private suspend fun post(resp: StepResponse): Result {
+        val mediaPath = strParam(resp, "media_path") ?: strParam(resp, "media_uri")
+        if (!mediaPath.isNullOrBlank()) {
+            val open = openApp(StepResponse(action = "open_app", params = mapOf("package" to JsonPrimitive(mediaPath))))
+            if (!open.ok) return open
+            delay(1200)
+        }
+        val caption = strParam(resp, "caption").orEmpty()
+        if (caption.isNotBlank()) {
+            ScreenReader.indexByText(root(), "caption", "write a caption")?.let { capIdx ->
+                type(StepResponse("type", mapOf(
+                    "target_id" to JsonPrimitive(capIdx),
+                    "text" to JsonPrimitive(caption),
+                )))
+            }
+        }
+        delay(500)
+        val shareIdx = ScreenReader.indexByText(root(), "share", "post")
+        return if (shareIdx != null) tapIndex(shareIdx) else Result(false, "post/share button not found")
+    }
+
+    private suspend fun scroll(resp: StepResponse): Result {
+        val dir = strParam(resp, "direction") ?: "down"
+        val id = intParam(resp, "target_id")
+        val node = if (id != null) ScreenReader.nodeAt(root(), id) else root()?.findScrollable()
+        val action = when (dir) {
+            "up", "left" -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            else -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        }
+        if (node?.performAction(action) == true) return Result(true)
+        val ok = GestureHelper.swipeDirection(service, dir)
+        return Result(ok, if (ok) null else "scroll gesture failed")
+    }
+
+    private suspend fun swipe(resp: StepResponse): Result {
+        val ok = GestureHelper.swipeDirection(service, strParam(resp, "direction") ?: "up")
+        delay(350)
+        return Result(ok, if (ok) null else "swipe gesture failed")
+    }
+
+    private suspend fun type(resp: StepResponse): Result {
+        val id = intParam(resp, "target_id") ?: return Result(false, "type needs target_id")
+        val text = strParam(resp, "text").orEmpty()
+        val node = ScreenReader.nodeAt(root(), id) ?: return Result(false, "no node $id")
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        return if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) Result(true)
+        else Result(false, "set_text failed")
+    }
+
+    private fun press(resp: StepResponse): Result {
+        val key = strParam(resp, "key") ?: "back"
+        val global = when (key) {
+            "home" -> AccessibilityService.GLOBAL_ACTION_HOME
+            "recents" -> AccessibilityService.GLOBAL_ACTION_RECENTS
+            else -> AccessibilityService.GLOBAL_ACTION_BACK
+        }
+        return Result(service.performGlobalAction(global))
+    }
+
+    private fun openApp(resp: StepResponse): Result {
+        var pkg = strParam(resp, "package") ?: return Result(false, "open_app needs package")
+        val lower = pkg.lowercase()
+        if (
+            lower.contains("google") || lower.contains("chrome") || lower.contains("browser") ||
+            lower.contains("instagram.com") || lower.contains("http") || lower.contains("instagram")
+        ) {
+            val resolved = resolveInstagramPackage()
+                ?: return Result(false, "Instagram not found — install it from Play Store first")
+            pkg = resolved
+        }
+        val intent = service.packageManager.getLaunchIntentForPackage(pkg)
+            ?: return Result(false, "cannot launch: $pkg (disabled or no launcher)")
+        intent.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP,
+        )
+        return try {
+            service.startActivity(intent)
+            Result(true)
+        } catch (e: Exception) {
+            Result(false, "launch failed: ${e.message}")
+        }
+    }
+
+    /** Find installed Instagram (full or Lite). Requires <queries> in AndroidManifest on API 30+. */
+    private fun resolveInstagramPackage(): String? {
+        val pm = service.packageManager
+        val preferred = listOf("com.instagram.android", "com.instagram.lite")
+        for (candidate in preferred) {
+            if (pm.getLaunchIntentForPackage(candidate) != null) return candidate
+        }
+        val apps = pm.getInstalledApplications(0)
+        for (info in apps) {
+            val name = info.packageName
+            if (name.contains("instagram", ignoreCase = true) && pm.getLaunchIntentForPackage(name) != null) {
+                return name
+            }
+        }
+        return null
+    }
+
+    private fun tapAt(x: Int, y: Int) {
+        val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
+        val stroke = GestureDescription.StrokeDescription(path, 0, 60)
+        service.dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+    }
+
+    private fun swipeDirection(dir: String) {
+        val dm = service.resources.displayMetrics
+        val cx = dm.widthPixels / 2f
+        val cy = dm.heightPixels / 2f
+        val d = dm.heightPixels * 0.35f
+        val path = Path()
+        when (dir) {
+            "up" -> { path.moveTo(cx, cy + d); path.lineTo(cx, cy - d) }
+            "down" -> { path.moveTo(cx, cy - d); path.lineTo(cx, cy + d) }
+            "left" -> { path.moveTo(cx + d, cy); path.lineTo(cx - d, cy) }
+            else -> { path.moveTo(cx - d, cy); path.lineTo(cx + d, cy) }
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0, 350)
+        service.dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+    }
+}
+
+private fun AccessibilityNodeInfo.findClickableAncestor(): AccessibilityNodeInfo? {
+    var n: AccessibilityNodeInfo? = this
+    var depth = 0
+    while (n != null && depth < 8) {
+        if (n.isClickable) return n
+        n = n.parent
+        depth++
+    }
+    return this
+}
+
+private fun AccessibilityNodeInfo.findScrollable(): AccessibilityNodeInfo? {
+    if (isScrollable) return this
+    for (i in 0 until childCount) {
+        getChild(i)?.findScrollable()?.let { return it }
+    }
+    return null
+}

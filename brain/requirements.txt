@@ -1,0 +1,12 @@
+# Python 3.10–3.12 required (3.14 not supported yet — pydantic/Pillow lack wheels).
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+httpx==0.28.1
+python-dotenv==1.0.1
+boto3==1.35.93
+Pillow==11.0.0
+
+# dev / test
+pytest==8.3.4

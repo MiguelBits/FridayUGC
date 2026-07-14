@@ -1,0 +1,81 @@
+# Runs BOTH the Gemma 4 model server (vLLM, GPU) and the Friday brain API on one box.
+# Upload thumbnails alongside reels so vision works even before ffmpeg is installed:
+#   gallery/raw/reel_leg_01.mp4 + gallery/thumbs/reel_leg_01.jpg
+# Use on an AWS GPU instance (g5.xlarge or larger). Requires the NVIDIA container toolkit.
+#
+#   HF_TOKEN=hf_xxx GEMMA_MODEL=google/gemma-4-12b-it docker compose up -d
+#
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    runtime: nvidia
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    command: >
+      --model ${GEMMA_MODEL:-google/gemma-4-12b-it}
+      --max-model-len 8192
+      --gpu-memory-utilization 0.90
+      --api-key ${VLLM_API_KEY:-friday-local-key}
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+  brain:
+    build: ../brain
+    environment:
+      - FRIDAY_LLM_PROVIDER=gemma_vllm
+      - FRIDAY_GEMMA_BASE_URL=http://vllm:8000/v1
+      - FRIDAY_GEMMA_MODEL=${GEMMA_MODEL:-google/gemma-4-12b-it}
+      - FRIDAY_GEMMA_API_KEY=${VLLM_API_KEY:-friday-local-key}
+      - FRIDAY_API_TOKEN=${FRIDAY_API_TOKEN:-change-me}
+      - FRIDAY_PERSONA=lorena
+      - FRIDAY_TTS_PROVIDER=${TTS_PROVIDER:-omnivoice}
+      - FRIDAY_OMNIVOICE_URL=http://omnivoice:8001
+      - FRIDAY_GALLERY_BACKEND=${GALLERY_BACKEND:-s3}
+      - FRIDAY_GALLERY_S3_BUCKET=${GALLERY_S3_BUCKET:-}
+      - FRIDAY_GALLERY_S3_REGION=${AWS_REGION:-us-east-1}
+      - FRIDAY_VISION_ENABLED=true
+      - FRIDAY_VISION_MODEL=${VISION_MODEL:-google/gemma-3-12b-it}
+      - FRIDAY_VISION_BASE_URL=${VISION_BASE_URL:-http://vllm:8000/v1}
+      - FRIDAY_RAG_ENABLED=true
+      - FRIDAY_EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-ollama}
+      - FRIDAY_EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
+      - FRIDAY_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - vllm
+    restart: unless-stopped
+
+  # High-quality Friday assistant TTS (OmniVoice). Optional — set TTS_PROVIDER=mock to skip.
+  omnivoice:
+    build: ./omnivoice
+    runtime: nvidia
+    profiles: ["tts"]
+    environment:
+      - OMNIVOICE_DEVICE=cuda:0
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    ports:
+      - "8001:8001"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+volumes:
+  hf-cache:

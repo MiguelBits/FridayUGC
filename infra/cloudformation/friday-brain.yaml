@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Friday UGC brain — a single GPU EC2 instance that runs Gemma 4 via vLLM plus the
+  Friday FastAPI brain (Docker Compose). Uses your AWS GPU credits. Locked down so
+  only your IP can reach the brain API and SSH.
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 key pair for SSH access.
+  MyIpCidr:
+    Type: String
+    Description: Your public IP in CIDR form (e.g. 203.0.113.5/32). Restricts SSH + API.
+    AllowedPattern: ^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$
+  InstanceType:
+    Type: String
+    Default: g5.xlarge
+    AllowedValues: [g5.xlarge, g5.2xlarge, g6.xlarge, g6.2xlarge]
+    Description: GPU instance type (g5.xlarge = 1x A10G 24GB, good for Gemma 4 12B).
+  HfToken:
+    Type: String
+    NoEcho: true
+    Description: Hugging Face token with access to the Gemma model weights.
+  GemmaModel:
+    Type: String
+    Default: google/gemma-4-12b-it
+    Description: Gemma 4 model id to serve with vLLM.
+  FridayApiToken:
+    Type: String
+    NoEcho: true
+    Description: Bearer token the Android agent must present to the brain.
+  GitRepoUrl:
+    Type: String
+    Default: https://github.com/MiguelBits/FridayUGC.git
+    Description: Public git URL cloned on the GPU instance at first boot.
+
+Mappings:
+  # Deep Learning Base GPU AMI (Ubuntu 22.04) — update per region as needed.
+  RegionAmi:
+    us-east-1:
+      Ami: ami-0c7217cdde317cfec
+    us-west-2:
+      Ami: ami-0d70546e43a941d70
+    eu-west-1:
+      Ami: ami-0d64bb532e0502c46
+
+Resources:
+  GalleryBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "friday-ugc-gallery-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: friday-gallery
+
+  BrainInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: FridayGalleryReadWrite
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt GalleryBucket.Arn
+                  - !Sub "${GalleryBucket.Arn}/*"
+
+  BrainInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref BrainInstanceRole]
+
+  BrainSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Friday brain — SSH + brain API restricted to owner IP.
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref MyIpCidr
+          Description: SSH
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref MyIpCidr
+          Description: Friday brain API
+
+  BrainInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      ImageId: !FindInMap [RegionAmi, !Ref "AWS::Region", Ami]
+      SecurityGroupIds: [!Ref BrainSecurityGroup]
+      IamInstanceProfile: !Ref BrainInstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 200
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: friday-brain
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          # Docker + NVIDIA toolkit are preinstalled on the DL GPU AMI. Verify:
+          nvidia-smi || true
+          cd /opt
+          git clone ${GitRepoUrl} friday || true
+          cd friday/infra
+          cat > .env <<EOF
+          HF_TOKEN=${HfToken}
+          GEMMA_MODEL=${GemmaModel}
+          VLLM_API_KEY=friday-local-key
+          FRIDAY_API_TOKEN=${FridayApiToken}
+          GALLERY_S3_BUCKET=${GalleryBucket}
+          GALLERY_BACKEND=s3
+          TTS_PROVIDER=omnivoice
+          AWS_REGION=${AWS::Region}
+          EOF
+          docker compose --env-file .env --profile tts up -d --build
+
+Outputs:
+  BrainApiUrl:
+    Description: Point the Android app FRIDAY_BRAIN_URL at this.
+    Value: !Sub "http://${BrainInstance.PublicDnsName}:8080"
+  GalleryBucketName:
+    Description: Upload raw clips to gallery/raw/ and manifest to gallery/manifest.json
+    Value: !Ref GalleryBucket
+  SshCommand:
+    Value: !Sub "ssh -i <your-key>.pem ubuntu@${BrainInstance.PublicDnsName}"

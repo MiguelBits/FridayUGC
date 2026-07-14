@@ -1,0 +1,14 @@
+{
+  "name": "opens_instagram_from_launcher",
+  "request": {
+    "session_id": "eval-open-ig",
+    "goal": "Scroll Instagram feed",
+    "step": 0,
+    "screen": {"app": "com.android.launcher", "elements": []},
+    "history": []
+  },
+  "expect": {
+    "action": "open_app",
+    "params_package": "com.instagram.android"
+  }
+}

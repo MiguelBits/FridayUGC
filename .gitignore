@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+apitoken.txt
+aws-credentials*
+friday-keystore.jks
+keystore.properties
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.apk
+*.aab
+*.iml
+
+# Node (docs tooling, if any)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts / output
+dist/
+out/
+*.log
+brain/data/runs/*.json
+!brain/data/runs/example_session.json
+brain/data/inbox/
+brain/data/gallery/manifest.json
+brain/data/**/*.db
+brain/data/**/*.sqlite
+brain/data/**/*.sqlite3
+
+# Model weights (never commit)
+models/
+*.safetensors
+*.gguf

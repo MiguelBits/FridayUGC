@@ -1,0 +1,16 @@
+{
+  "name": "scrolls_when_instagram_open",
+  "request": {
+    "session_id": "eval-scroll",
+    "goal": "Scroll Instagram feed",
+    "step": 1,
+    "screen": {
+      "app": "com.instagram.android",
+      "elements": [{"id": 0, "role": "scrollable", "text": "Feed", "scrollable": true}]
+    },
+    "history": ["open_app"]
+  },
+  "expect": {
+    "action": "scroll"
+  }
+}

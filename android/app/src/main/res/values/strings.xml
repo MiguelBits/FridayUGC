@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Friday UGC</string>
+    <string name="accessibility_label">Friday UGC Agent</string>
+    <string name="accessibility_desc">Lets Friday read the screen and perform taps, scrolls, and typing to operate your Instagram account on your behalf.</string>
+    <string name="fgs_channel">Friday Agent</string>
+    <string name="notif_channel_desc">Live task and step progress while Friday operates Instagram.</string>
+    <string name="notif_title_idle">Friday — idle</string>
+    <string name="notif_title_session">Friday — session</string>
+    <string name="notif_title_task">Friday — %1$s</string>
+    <string name="notif_step_line">Step %1$d/%2$d · %3$s · %4$s · %5$s</string>
+    <string name="notif_action_stop">Stop</string>
+    <string name="notif_action_open">Open</string>
+</resources>

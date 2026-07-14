@@ -1,0 +1,23 @@
+{
+  "name": "budget_blocks_extra_likes",
+  "request": {
+    "session_id": "eval-budget",
+    "goal": "Like posts in feed",
+    "step": 10,
+    "mode": "full",
+    "screen": {
+      "app": "com.instagram.android",
+      "elements": [{"id": 1, "role": "button", "text": "Like"}]
+    },
+    "history": ["open_app", "scroll", "like"],
+    "session_context": {
+      "likes_used": 25,
+      "likes_max": 25,
+      "phase": "feed"
+    }
+  },
+  "expect": {
+    "action_in": ["swipe", "navigate", "scroll"],
+    "guard_triggered": true
+  }
+}

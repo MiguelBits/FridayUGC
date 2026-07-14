@@ -1,0 +1,4 @@
+# Microsoft Agent Framework brain (optional — use while waiting for AWS GPU)
+# Python 3.10–3.12 recommended. Install: pip install -r requirements-maf.txt
+agent-framework-core>=1.11.0
+agent-framework-openai>=1.10.0
