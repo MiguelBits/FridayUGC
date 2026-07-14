@@ -19,6 +19,8 @@ import com.miguelbits.fridayugc.model.EvalReport
 import com.miguelbits.fridayugc.model.LearningMetrics
 import com.miguelbits.fridayugc.model.TrajectoryBatchRequest
 import com.miguelbits.fridayugc.model.TrajectoryBatchResponse
+import com.miguelbits.fridayugc.model.GroundRequest
+import com.miguelbits.fridayugc.model.GroundResponse
 import com.miguelbits.fridayugc.model.StepRequest
 import com.miguelbits.fridayugc.model.StepResponse
 import com.miguelbits.fridayugc.model.CaptionRequest
@@ -69,6 +71,20 @@ class BrainClient(
         }
     }
 
+    suspend fun ground(req: GroundRequest): GroundResponse = withContext(Dispatchers.IO) {
+        val body = json.encodeToString(GroundRequest.serializer(), req).toRequestBody(jsonMedia)
+        val request = Request.Builder()
+            .url("$baseUrl/agent/ground")
+            .addHeader("Authorization", "Bearer $apiToken")
+            .post(body)
+            .build()
+        http.newCall(request).execute().use { resp ->
+            val text = resp.body?.string().orEmpty()
+            check(resp.isSuccessful) { "Ground error ${resp.code}: $text" }
+            json.decodeFromString(GroundResponse.serializer(), text)
+        }
+    }
+
     suspend fun health(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder().url("$baseUrl/health").get().build()
@@ -108,6 +124,10 @@ class BrainClient(
 
     suspend fun syncDeviceMemory(req: DeviceMemorySyncRequest): DeviceMemoryResponse =
         post("/learning/memory", req, DeviceMemoryResponse.serializer())
+
+    /** Pull previously-learned coords from the brain (cold-start bootstrap). */
+    suspend fun getDeviceMemory(deviceId: String): DeviceMemoryResponse =
+        get("/learning/memory/$deviceId", DeviceMemoryResponse.serializer())
 
     suspend fun learningMetrics(): LearningMetrics =
         get("/learning/metrics", LearningMetrics.serializer())

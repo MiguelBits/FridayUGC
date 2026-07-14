@@ -25,6 +25,11 @@ class SessionTracker {
     var savesUsed = 0
     var savesMax = 5
     var phase: String = "reels"
+    var reelsTabOpened = false
+    var reelsSwipeAttempted = false
+    var commentsSheetOpen = false
+    var commentLikesPhase: String = CommentLikesRoutine.PHASE_ON_REELS
+    var readyForNextReel = false
 
     fun applyFromBudget(budget: SessionBudget) {
         likesMax = budget.likesMax
@@ -61,6 +66,11 @@ class SessionTracker {
         savesUsed = intOf("saves_used", savesUsed)
         savesMax = intOf("saves_max", savesMax)
         phase = (ctx["phase"] as? JsonPrimitive)?.content ?: phase
+        reelsTabOpened = intOf("reels_tab_opened", if (reelsTabOpened) 1 else 0) == 1
+        reelsSwipeAttempted = intOf("reels_swipe_attempted", if (reelsSwipeAttempted) 1 else 0) == 1
+        commentsSheetOpen = intOf("comments_sheet_open", if (commentsSheetOpen) 1 else 0) == 1
+        commentLikesPhase = (ctx["comment_likes_phase"] as? JsonPrimitive)?.content ?: commentLikesPhase
+        readyForNextReel = intOf("ready_for_next_reel", if (readyForNextReel) 1 else 0) == 1
     }
 
     fun toContext(): Map<String, JsonElement> = mapOf(
@@ -83,6 +93,11 @@ class SessionTracker {
         "saves_used" to JsonPrimitive(savesUsed),
         "saves_max" to JsonPrimitive(savesMax),
         "phase" to JsonPrimitive(phase),
+        "reels_tab_opened" to JsonPrimitive(if (reelsTabOpened) 1 else 0),
+        "reels_swipe_attempted" to JsonPrimitive(if (reelsSwipeAttempted) 1 else 0),
+        "comments_sheet_open" to JsonPrimitive(if (commentsSheetOpen) 1 else 0),
+        "comment_likes_phase" to JsonPrimitive(commentLikesPhase),
+        "ready_for_next_reel" to JsonPrimitive(if (readyForNextReel) 1 else 0),
     )
 
     fun record(action: String, params: Map<String, JsonElement> = emptyMap()) {
@@ -93,17 +108,36 @@ class SessionTracker {
                 commentLikesThisReel++
             }
             "like_story" -> storyLikesUsed++
-            "swipe" -> {
-                reelsScrolled++
-                commentLikesThisReel = 0
-            }
             "comment" -> commentsUsed++
             "dm" -> dmsUsed++
             "follow", "unfollow" -> followsUsed++
             "save" -> savesUsed++
+            "navigate" -> {
+                // reelsTabOpened is set in AgentController after surface verification.
+            }
+            "tap" -> {
+                // Phase transitions for comment-likes are verified in AgentController after tap.
+            }
             "press" -> {
                 val key = (params["key"] as? JsonPrimitive)?.content?.lowercase()
-                if (key == "back") commentLikesThisReel = 0
+                if (key == "back" && phase == "reels_comment_likes") {
+                    CommentLikesRoutine.onActionCompleted(this, "press", ok = true)
+                } else if (key == "back") {
+                    commentLikesThisReel = 0
+                    commentsSheetOpen = false
+                }
+            }
+            "swipe" -> {
+                val dir = (params["direction"] as? JsonPrimitive)?.content?.lowercase()
+                if (dir == "left" && phase == "reels_comment_likes") {
+                    // reelsTabOpened is set in AgentController after surface verification.
+                }
+                reelsScrolled++
+                if (phase == "reels_comment_likes") {
+                    CommentLikesRoutine.onActionCompleted(this, "swipe", ok = true)
+                } else {
+                    commentLikesThisReel = 0
+                }
             }
         }
     }

@@ -1,0 +1,23 @@
+{
+  "name": "vision_on_ambiguous_sparse_tree",
+  "route": true,
+  "request": {
+    "session_id": "eval-vision",
+    "goal": "Like niche posts on Instagram",
+    "step": 3,
+    "screen": {
+      "app": "com.instagram.android",
+      "elements": [
+        {"id": 0, "role": "button", "text": "Like", "clickable": true},
+        {"id": 1, "role": "image", "text": "", "clickable": false}
+      ]
+    },
+    "history": ["open_app", "scroll", "scroll"],
+    "last_result": {"action": "scroll", "ok": false, "verified": "unverified"}
+  },
+  "expect": {
+    "action": "wait",
+    "needs_screenshot": true,
+    "reason_contains": "vision"
+  }
+}

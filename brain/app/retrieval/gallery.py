@@ -97,7 +97,8 @@ async def sync_gallery_index(assets: list[GalleryAsset]) -> tuple[int, list[str]
         return 0, warnings
 
     for asset, vector in zip(to_embed, vectors):
-        store.upsert(asset.id, hashes[asset.id], vector)
+        document = asset_document(asset)
+        store.upsert(asset.id, hashes[asset.id], vector, search_text=document)
 
     store.set_meta("last_sync_at", date.today().isoformat())
     store.set_meta("embedding_provider", settings.embedding_provider)
@@ -177,7 +178,7 @@ async def retrieve_assets_for_curation(
         warnings.append(f"rag_query_embed_failed:{type(exc).__name__}")
         return assets, warnings, hits
 
-    ranked = store.search(query_vector, top_k=top_k)
+    ranked = store.search_hybrid(query_vector, query, top_k=top_k)
     by_id = {asset.id: asset for asset in assets}
     selected_ids = {asset_id for asset_id, _score in ranked}
     selected = [by_id[asset_id] for asset_id, _score in ranked if asset_id in by_id]

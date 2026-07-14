@@ -63,6 +63,41 @@ object ScreenReader {
     }
 
     /**
+     * Text search limited to the bottom navigation bar. Avoids matching story-tray
+     * bubbles or feed rows that contain "reel" before the real Reels tab.
+     */
+    fun indexByTextInBottomNav(
+        root: AccessibilityNodeInfo?,
+        screenHeight: Int,
+        vararg keywords: String,
+    ): Int? {
+        if (root == null) return null
+        val barMinY = (screenHeight * 0.82f).toInt()
+        val nodes = ArrayList<AccessibilityNodeInfo>()
+        collect(root, nodes)
+        val lower = keywords.map { it.lowercase() }
+        nodes.forEachIndexed { index, node ->
+            val rect = Rect()
+            node.getBoundsInScreen(rect)
+            if (rect.isEmpty || rect.centerY() < barMinY) return@forEachIndexed
+            val hay = nodeText(node).lowercase()
+            if (lower.any { hay.contains(it) }) return index
+        }
+        return null
+    }
+
+    /** True when node sits in the story tray strip at the top of home feed. */
+    fun isInStoryTrayZone(node: AccessibilityNodeInfo, screenHeight: Int): Boolean {
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+        if (rect.isEmpty) return false
+        val storyMaxY = (screenHeight * 0.28f).toInt()
+        if (rect.centerY() > storyMaxY) return false
+        val hay = nodeText(node).lowercase()
+        return hay.contains("story") || hay.contains("live") || hay.contains("your story")
+    }
+
+    /**
      * Instagram bottom bar icons often have no text — find by resource id hint or
      * position (home=0, reels=1, create=2, search=3, profile=4).
      */
