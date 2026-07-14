@@ -125,6 +125,10 @@ class BrainClient(
     suspend fun syncDeviceMemory(req: DeviceMemorySyncRequest): DeviceMemoryResponse =
         post("/learning/memory", req, DeviceMemoryResponse.serializer())
 
+    /** Pull previously-learned coords from the brain (cold-start bootstrap). */
+    suspend fun getDeviceMemory(deviceId: String): DeviceMemoryResponse =
+        get("/learning/memory/$deviceId", DeviceMemoryResponse.serializer())
+
     suspend fun learningMetrics(): LearningMetrics =
         get("/learning/metrics", LearningMetrics.serializer())
 

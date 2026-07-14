@@ -173,6 +173,7 @@ class IntentResolver(
         screen: Screen,
         tracker: SessionTracker,
         screenshotB64: String?,
+        forceVision: Boolean = false,
     ): ResolveResult {
         if (tracker.commentLikesThisReel >= tracker.commentLikesPerReel) {
             return ResolveResult(
@@ -183,24 +184,43 @@ class IntentResolver(
         val w = dm.widthPixels
         val h = dm.heightPixels
         val sheetMinY = (h * 0.55f).toInt()
-        val hearts = screen.elements.filter { e ->
-            if (!e.clickable || e.w <= 0 || e.h <= 0) return@filter false
-            val cy = e.y + e.h / 2
-            if (cy < sheetMinY) return@filter false
-            e.text.lowercase().let { t -> t.contains("like") || t.contains("heart") } ||
-                (e.w <= 120 && e.h <= 120 && e.x + e.w / 2 > w * 0.72f)
-        }.sortedBy { it.y }
         val row = tracker.commentLikesThisReel
-        if (hearts.isNotEmpty()) {
-            val pick = hearts[row.coerceAtMost(hearts.lastIndex)]
-            return ResolveResult(
-                StepResponse(action = "like_comment", params = mapOf("target_id" to JsonPrimitive(pick.id))),
-            )
-        }
-        memoryStore.lookup("like_comment")?.let { (x, y) ->
-            return ResolveResult(
-                StepResponse(action = "like_comment", params = mapOf("x" to JsonPrimitive(x), "y" to JsonPrimitive(y))),
-            )
+        if (!forceVision) {
+            val hearts = screen.elements.filter { e ->
+                if (!e.clickable || e.w <= 0 || e.h <= 0) return@filter false
+                val cy = e.y + e.h / 2
+                if (cy < sheetMinY) return@filter false
+                e.text.lowercase().let { t -> t.contains("like") || t.contains("heart") } ||
+                    (e.w <= 120 && e.h <= 120 && e.x + e.w / 2 > w * 0.72f)
+            }.sortedBy { it.y }
+            if (hearts.isNotEmpty()) {
+                val pick = hearts[row.coerceAtMost(hearts.lastIndex)]
+                return ResolveResult(
+                    StepResponse(
+                        action = "like_comment",
+                        params = mapOf(
+                            "target_id" to JsonPrimitive(pick.id),
+                            "ui_key" to JsonPrimitive("comment_heart"),
+                        ),
+                        reason = "a11y bind — comment heart row $row",
+                    ),
+                    uiKey = "comment_heart",
+                )
+            }
+            memoryStore.lookup("comment_heart")?.let { (x, y) ->
+                return ResolveResult(
+                    StepResponse(
+                        action = "like_comment",
+                        params = mapOf(
+                            "x" to JsonPrimitive(x),
+                            "y" to JsonPrimitive(y),
+                            "ui_key" to JsonPrimitive("comment_heart"),
+                        ),
+                        reason = "memory bind — comment_heart",
+                    ),
+                    uiKey = "comment_heart",
+                )
+            }
         }
         return visionGround(
             anchor = "comment_heart",
@@ -245,14 +265,17 @@ class IntentResolver(
                 ResolveResult(
                     StepResponse(action = "wait", params = mapOf("ms" to JsonPrimitive(400)), reason = ground.reason),
                     needsScreenshot = true,
+                    uiKey = anchor,
                 )
             } else {
+                val paramsWithKey = ground.params + mapOf("ui_key" to JsonPrimitive(anchor))
                 ResolveResult(
                     StepResponse(
                         action = ground.action.ifBlank { fallbackAction },
-                        params = ground.params,
+                        params = paramsWithKey,
                         reason = "vision ground: ${ground.reason}",
                     ),
+                    uiKey = anchor,
                 )
             }
         }.getOrElse {
