@@ -2,6 +2,7 @@ package com.miguelbits.fridayugc
 
 import com.miguelbits.fridayugc.model.Screen
 import com.miguelbits.fridayugc.model.ScreenElement
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Picks Reels right-rail icons without hitting like, share, or audio. */
@@ -21,7 +22,7 @@ object ReelsTargetFinder {
         "save", "follow", "following", "profile", "like", "heart",
     )
 
-    fun commentsTapParams(screen: Screen, w: Int, h: Int): Map<String, JsonPrimitive>? {
+    fun commentsTapParams(screen: Screen, w: Int, h: Int): Map<String, JsonElement>? {
         val el = findCommentsElement(screen, w, h) ?: return null
         return mapOf("target_id" to JsonPrimitive(el.id))
     }

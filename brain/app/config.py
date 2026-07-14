@@ -132,6 +132,8 @@ class Settings(BaseSettings):
     rag_gallery_top_k: int = 20
     rag_caption_top_k: int = 5
     rag_index_path: str = ""  # empty = brain/data/gallery/rag_index.db
+    rag_hybrid_enabled: bool = True  # BM25 + vector fusion (raglite-style)
+    rag_hybrid_alpha: float = 0.6  # weight on vector score vs lexical (0–1)
 
     # mock | ollama | gemma_vllm | openai | azure
     embedding_provider: str = "mock"

@@ -110,6 +110,8 @@ object ScreenClassifier {
         val hasFeedTabs = texts.any { it.contains("for you") || it.contains("following") }
         val reelsNavSelected = texts.any { it.contains("reels") && it.contains("selected") }
         val bigScrollable = screen.elements.any { it.scrollable && it.h > 400 && it.w > 200 }
+        val activitySuggestsReels = activityLower.contains("clips") ||
+            (activityLower.contains("reel") && !activityLower.contains("profile"))
 
         if (reelsNavSelected && !hasFeedTabs) {
             signals.add("reels tab selected, no home feed tabs")
@@ -125,17 +127,31 @@ object ScreenClassifier {
             )
         }
 
-        if (!hasFeedTabs && bigScrollable && screen.elements.size < 22) {
-            signals.add("full-screen scrollable without home tabs = reels pager")
+        if (!hasFeedTabs && bigScrollable && screen.elements.size < 22 && activitySuggestsReels) {
+            signals.add("reels activity + full-screen scrollable")
             return ScreenState(
                 appPackage = screen.app,
                 activityClass = activityClass,
                 screenType = "reels_viewer",
                 selectedTab = "reels",
-                confidence = 0.82f,
+                confidence = 0.88f,
                 elementCount = screen.elements.size,
                 signals = signals,
                 needsVision = screen.elements.size < 8,
+            )
+        }
+
+        if (!hasFeedTabs && bigScrollable && screen.elements.size < 22) {
+            signals.add("scrollable feed without tab labels — likely home, not reels")
+            return ScreenState(
+                appPackage = screen.app,
+                activityClass = activityClass,
+                screenType = "home_feed",
+                selectedTab = "home",
+                confidence = 0.55f,
+                elementCount = screen.elements.size,
+                signals = signals,
+                needsVision = true,
             )
         }
 
@@ -186,14 +202,28 @@ object ScreenClassifier {
         }
 
         val bigScrollable2 = screen.elements.any { it.scrollable && it.h > 400 && it.w > 200 }
-        if (bigScrollable2 && screen.elements.size < 15) {
-            signals.add("sparse tree + large scrollable = reel viewer heuristic")
+        if (bigScrollable2 && screen.elements.size < 15 && activitySuggestsReels) {
+            signals.add("reels activity + sparse tree")
             return ScreenState(
                 appPackage = screen.app,
                 activityClass = activityClass,
                 screenType = "reels_viewer",
                 selectedTab = "reels",
-                confidence = 0.72f,
+                confidence = 0.8f,
+                elementCount = screen.elements.size,
+                signals = signals,
+                needsVision = screen.elements.size < 8,
+            )
+        }
+
+        if (bigScrollable2 && screen.elements.size < 15) {
+            signals.add("sparse tree + scrollable — ambiguous feed surface")
+            return ScreenState(
+                appPackage = screen.app,
+                activityClass = activityClass,
+                screenType = "home_feed",
+                selectedTab = "home",
+                confidence = 0.5f,
                 elementCount = screen.elements.size,
                 signals = signals,
                 needsVision = true,

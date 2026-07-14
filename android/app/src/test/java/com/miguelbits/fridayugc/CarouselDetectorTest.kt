@@ -20,7 +20,7 @@ class CarouselDetectorTest {
     }
 
     @Test
-    fun detects_center_horizontal_scrollable() {
+    fun ignores_plain_feed_scrollable_without_carousel_text() {
         val screen = Screen(
             app = "com.instagram.android",
             elements = listOf(
@@ -34,7 +34,7 @@ class CarouselDetectorTest {
                 ),
             ),
         )
-        assertTrue(CarouselDetector.hasCarouselPost(screen, 1080, 2400))
+        assertFalse(CarouselDetector.hasCarouselPost(screen, 1080, 2400))
     }
 
     @Test

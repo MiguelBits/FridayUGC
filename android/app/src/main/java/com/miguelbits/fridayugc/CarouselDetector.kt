@@ -22,14 +22,6 @@ object CarouselDetector {
             if (fractionPattern.containsMatchIn(t)) return true
             if (ofPattern.containsMatchIn(t)) return true
         }
-        return screen.elements.any { e ->
-            if (!e.scrollable || e.w <= width / 3 || e.h <= height / 5) return@any false
-            val cy = e.y + e.h / 2
-            val cx = e.x + e.w / 2
-            cy in bandTop..bandBottom &&
-                cx > width * 0.15f && cx < width * 0.85f &&
-                e.h < height * 0.65f &&
-                e.w > width * 0.45f
-        }
+        return false
     }
 }

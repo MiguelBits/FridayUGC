@@ -19,6 +19,8 @@ class IntentResolver(
     data class ResolveResult(
         val response: StepResponse,
         val needsScreenshot: Boolean = false,
+        /** ui_key learned from this bind (nav_reels, comments_icon, comment_heart). */
+        val uiKey: String? = null,
     )
 
     suspend fun resolve(
@@ -27,13 +29,14 @@ class IntentResolver(
         screenState: ScreenState,
         tracker: SessionTracker,
         screenshotB64: String? = null,
+        forceVision: Boolean = false,
     ): ResolveResult {
         val name = (intent.params["name"] as? JsonPrimitive)?.content?.lowercase().orEmpty()
         return when (name) {
-            "enter_reels" -> resolveEnterReels(screenState)
+            "enter_reels" -> resolveEnterReels(screen, screenState, tracker)
             "watch_reel", "dwell" -> resolveDwell(intent)
-            "open_comments" -> resolveOpenComments(screen, screenState, screenshotB64)
-            "engage_comments" -> resolveEngageComments(screen, tracker, screenshotB64)
+            "open_comments" -> resolveOpenComments(screen, screenState, screenshotB64, forceVision)
+            "engage_comments" -> resolveEngageComments(screen, tracker, screenshotB64, forceVision)
             "next_reel" -> ResolveResult(
                 StepResponse(action = "swipe", params = mapOf("direction" to JsonPrimitive("up"))),
             )
@@ -62,8 +65,30 @@ class IntentResolver(
         }
     }
 
-    private suspend fun resolveEnterReels(screenState: ScreenState): ResolveResult {
-        if (screenState.screenType == "reels_viewer" && screenState.confidence >= 0.55f) {
+    private suspend fun resolveEnterReels(
+        screen: Screen,
+        screenState: ScreenState,
+        tracker: SessionTracker,
+    ): ResolveResult {
+        if (screenState.screenType == "story_viewer") {
+            return ResolveResult(
+                StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
+            )
+        }
+        val hasHomeTabs = screen.elements.any {
+            val t = it.text.lowercase()
+            t.contains("for you") || t.contains("following")
+        }
+        val activityLower = screenState.activityClass.lowercase()
+        val activityReels = activityLower.contains("clips") ||
+            (activityLower.contains("reel") && !activityLower.contains("profile"))
+        val reelsNavSelected = screen.elements.any {
+            val t = it.text.lowercase()
+            t.contains("reels") && t.contains("selected")
+        }
+        val onReels = tracker.reelsTabOpened && !hasHomeTabs &&
+            (activityReels || reelsNavSelected || screenState.screenType == "reels_viewer")
+        if (onReels) {
             return ResolveResult(
                 StepResponse(
                     action = "wait",
@@ -72,13 +97,16 @@ class IntentResolver(
                 ),
             )
         }
-        if (screenState.screenType == "story_viewer") {
-            return ResolveResult(
-                StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
-            )
-        }
         return ResolveResult(
-            StepResponse(action = "navigate", params = mapOf("tab" to JsonPrimitive("reels"))),
+            StepResponse(
+                action = "navigate",
+                params = mapOf(
+                    "tab" to JsonPrimitive("reels"),
+                    "ui_key" to JsonPrimitive("nav_reels"),
+                ),
+                reason = "enter_reels — bottom nav / deep link only (no pager swipe)",
+            ),
+            uiKey = "nav_reels",
         )
     }
 
@@ -94,6 +122,7 @@ class IntentResolver(
         screen: Screen,
         screenState: ScreenState,
         screenshotB64: String?,
+        forceVision: Boolean = false,
     ): ResolveResult {
         if (screenState.screenType == "comments_sheet") {
             return ResolveResult(
@@ -101,15 +130,34 @@ class IntentResolver(
             )
         }
         val dm = service.resources.displayMetrics
-        ReelsTargetFinder.findCommentsElement(screen, dm.widthPixels, dm.heightPixels)?.let { e ->
-            return ResolveResult(
-                StepResponse(action = "tap", params = mapOf("target_id" to JsonPrimitive(e.id))),
-            )
-        }
-        memoryStore.lookup("comments_icon")?.let { (x, y) ->
-            return ResolveResult(
-                StepResponse(action = "tap", params = mapOf("x" to JsonPrimitive(x), "y" to JsonPrimitive(y))),
-            )
+        if (!forceVision) {
+            ReelsTargetFinder.findCommentsElement(screen, dm.widthPixels, dm.heightPixels)?.let { e ->
+                return ResolveResult(
+                    StepResponse(
+                        action = "tap",
+                        params = mapOf(
+                            "target_id" to JsonPrimitive(e.id),
+                            "ui_key" to JsonPrimitive("comments_icon"),
+                        ),
+                        reason = "a11y bind — comments bubble on reels rail",
+                    ),
+                    uiKey = "comments_icon",
+                )
+            }
+            memoryStore.lookup("comments_icon")?.let { (x, y) ->
+                return ResolveResult(
+                    StepResponse(
+                        action = "tap",
+                        params = mapOf(
+                            "x" to JsonPrimitive(x),
+                            "y" to JsonPrimitive(y),
+                            "ui_key" to JsonPrimitive("comments_icon"),
+                        ),
+                        reason = "memory bind — comments_icon",
+                    ),
+                    uiKey = "comments_icon",
+                )
+            }
         }
         return visionGround(
             anchor = "comments_icon",

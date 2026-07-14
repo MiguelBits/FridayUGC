@@ -73,7 +73,7 @@ def comment_likes_kickstart(req: StepRequest, state: ScreenState) -> StepRespons
     phase = str(ctx.get("comment_likes_phase", "on_reels"))
     if phase != "on_reels" or on_comments_sheet(state, ctx):
         return None
-    if not on_reels_surface(state, ctx):
+    if not on_reels_surface(state, ctx, req.screen):
         return None
     if ctx_int(ctx, "comment_likes_this_reel") > 0:
         return None

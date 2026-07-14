@@ -7,12 +7,22 @@ from app.agent.perception import on_reels_surface, resolve_state
 from app.agent.playbook import comment_likes_kickstart
 
 
-def test_on_reels_surface_trusts_tab_opened_on_home_feed():
+def test_on_reels_surface_rejects_home_feed_with_tabs_even_if_tab_opened():
     state = ScreenState(screen_type="home_feed", confidence=0.9)
+    screen = Screen(
+        app="com.instagram.android",
+        elements=[ScreenElement(id=0, text="For you")],
+    )
+    assert on_reels_surface(state, {"reels_tab_opened": 1}, screen) is False
+
+
+def test_on_reels_surface_accepts_reels_viewer():
+    state = ScreenState(screen_type="reels_viewer", confidence=0.82)
+    assert on_reels_surface(state, {"reels_tab_opened": 0}) is True
     assert on_reels_surface(state, {"reels_tab_opened": 1}) is True
 
 
-def test_resolve_state_overrides_home_feed_when_tab_opened():
+def test_resolve_state_keeps_home_feed_when_tabs_visible():
     req = StepRequest(
         session_id="s1",
         goal="Like comments on 10 reels",
@@ -24,7 +34,7 @@ def test_resolve_state_overrides_home_feed_when_tab_opened():
         session_context={"reels_tab_opened": 1},
     )
     state = resolve_state(req)
-    assert state.screen_type == "reels_viewer"
+    assert state.screen_type == "home_feed"
 
 
 def test_like_hearts_on_comments_sheet():
@@ -58,7 +68,7 @@ def test_like_hearts_on_comments_sheet():
     assert "target_id" in kick.params
 
 
-def test_kickstart_tap_comments_on_reels():
+def test_kickstart_skipped_on_home_feed():
     req = StepRequest(
         session_id="s1",
         goal="Like comments on 10 reels",
@@ -70,7 +80,4 @@ def test_kickstart_tap_comments_on_reels():
         session_context={"reels_tab_opened": 1, "comment_likes_this_reel": 0},
     )
     kick = comment_likes_kickstart(req, resolve_state(req))
-    assert kick is not None
-    assert kick.action == "intent"
-    assert kick.params.get("name") == "open_comments"
-    assert kick.needs_screenshot is True
+    assert kick is None

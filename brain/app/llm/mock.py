@@ -127,12 +127,22 @@ class MockClient(LLMClient):
                         "needs_screenshot": False,
                         "approval_required": False,
                     }
+                elif "screen_type=home_feed" in last or "for you" in last.lower():
+                    action = {
+                        "action": "navigate",
+                        "params": {"tab": "reels"},
+                        "say": "Opening Reels tab.",
+                        "reason": "Home feed — navigate to Reels tab first.",
+                        "done": False,
+                        "needs_screenshot": False,
+                        "approval_required": False,
+                    }
                 else:
                     action = {
-                        "action": "intent",
-                        "params": {"name": "enter_reels"},
-                        "say": "Opening Reels.",
-                        "reason": "Reels work — enter via intent.",
+                        "action": "navigate",
+                        "params": {"tab": "reels"},
+                        "say": "Opening Reels tab.",
+                        "reason": "Reels work — navigate to Reels tab.",
                         "done": False,
                         "needs_screenshot": False,
                         "approval_required": False,

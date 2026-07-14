@@ -10,7 +10,7 @@ from ..persona import get_persona
 from ..runs import RunStore, StepTrace
 from .actions import StepRequest, StepResponse
 from .playbook import comment_likes_kickstart, comment_likes_like_hearts
-from .perception import resolve_state
+from .perception import on_reels_surface, resolve_state
 from .prompt import (
     apply_guards,
     build_step_user_prompt,
@@ -51,6 +51,28 @@ def _instagram_ui_step(req: StepRequest) -> bool:
         return False
     state = resolve_state(req)
     return state.screen_type in INSTAGRAM_UI_SCREENS
+
+
+def _needs_reels_entry(req: StepRequest) -> bool:
+    """Deterministic Reels tab entry before LLM — avoids intent loops on home_feed."""
+    if not goal_wants_comment_likes(req.goal):
+        return False
+    if not on_instagram(req.screen.app or "") and not goal_wants_instagram(req.goal):
+        return False
+    state = resolve_state(req)
+    return not on_reels_surface(state, req.session_context or {}, req.screen)
+
+
+def _reels_entry_response(req: StepRequest, state) -> StepResponse:
+    return StepResponse(
+        action="navigate",
+        params={"tab": "reels"},
+        say="Opening Reels tab.",
+        reason=f"Eager reels entry — screen_type={state.screen_type}",
+        done=False,
+        needs_screenshot=False,
+        approval_required=False,
+    )
 
 
 def _should_use_playbook(req: StepRequest) -> bool:
@@ -162,6 +184,26 @@ async def decide_legacy(req: StepRequest, persona_key: str = "lorena") -> StepRe
     cached = operator.get_cached_step(req.session_id, req.step)
     if cached:
         return StepResponse.model_validate(cached)
+
+    state = resolve_state(req)
+    if _needs_reels_entry(req):
+        entry = apply_guards(req, _reels_entry_response(req, state))
+        operator.record_step(
+            session_id=req.session_id,
+            step=req.step,
+            action=entry,
+            response=entry.model_dump(),
+            session_context=req.session_context,
+        )
+        _record_step(
+            req,
+            entry,
+            latency_ms=0.0,
+            guard_triggered=False,
+            guard_reason="eager_reels_entry",
+        )
+        return entry
+
     if _is_ambiguous_step(req):
         resp = _vision_capture_response(req)
         operator.record_step(
@@ -180,7 +222,6 @@ async def decide_legacy(req: StepRequest, persona_key: str = "lorena") -> StepRe
         )
         return resp
 
-    state = resolve_state(req)
     if _should_use_playbook(req):
         kick = comment_likes_like_hearts(req, state) or comment_likes_kickstart(req, state)
         if kick is not None:

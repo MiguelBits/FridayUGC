@@ -25,7 +25,7 @@ class ScreenClassifierTest {
     }
 
     @Test
-    fun reels_viewer_sparse_scrollable() {
+    fun sparse_scrollable_without_reels_signals_is_home_feed() {
         val screen = Screen(
             app = "com.instagram.android",
             elements = listOf(
@@ -33,7 +33,7 @@ class ScreenClassifierTest {
             ),
         )
         val state = ScreenClassifier.classify(screen)
-        assertEquals("reels_viewer", state.screenType)
+        assertEquals("home_feed", state.screenType)
         assertTrue(state.needsVision)
     }
 

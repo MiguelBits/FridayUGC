@@ -99,9 +99,16 @@ async def sync_caption_index() -> tuple[int, list[str]]:
         warnings.append(f"rag_caption_index_sync_failed:{type(exc).__name__}")
         return 0, warnings
 
-    for (caption_id, _document, caption_text, pillar), vector in zip(to_embed, vectors):
-        digest = doc_hash(_document)
-        store.upsert(caption_id, digest, caption_text, pillar=pillar, embedding=vector)
+    for (caption_id, document, caption_text, pillar), vector in zip(to_embed, vectors):
+        digest = doc_hash(document)
+        store.upsert(
+            caption_id,
+            digest,
+            caption_text,
+            pillar=pillar,
+            embedding=vector,
+            search_text=document,
+        )
 
     return len(to_embed), warnings
 
@@ -139,7 +146,7 @@ async def retrieve_caption_examples(
         return [], warnings, hits
 
     top_k = settings.rag_caption_top_k
-    ranked = store.search(query_vector, top_k=top_k)
+    ranked = store.search_hybrid(query_vector, query, top_k=top_k)
     examples = [text for _cid, _score, text, _pillar in ranked if text.strip()]
     hits = [
         RetrievalHit(

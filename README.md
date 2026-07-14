@@ -1,4 +1,7 @@
 # Friday UGC
+$ cd ~/Desktop/Github_MiguelBits/FridayUGC/android && ./gradlew assembleDebug && cd app/build/outputs/apk/debug && python -m http.server 8765 --bind 0.0.0.0
+
+cd ~/Desktop/Github_MiguelBits/FridayUGC/brain && source .venv/Scripts/activate && uvicorn app.main:app --host 0.0.0.0 --port 8080
 
 **Friday** is an autonomous UGC (user-generated content) operator for the **Lorena Mor** AI persona. A **remote brain** (FastAPI + Gemma on AWS GPU via vLLM) plans each step; an **Android accessibility agent** reads the screen and executes taps, scrolls, and posts on Instagram (`@itslorenamor`).
 
@@ -27,12 +30,13 @@ Last run: **2026-07-14** (local, `FRIDAY_LLM_PROVIDER=mock` — no GPU required)
 
 | Suite | Tests | Passed | What it validates |
 |-------|------:|-------:|-------------------|
-| **Agent eval harness** | 7 | 7 | Frozen IG screen scenarios → correct action, guards, approval gates |
-| Retrieval / RAG | 8 | 8 | Gallery + caption index, embedding ranking, pillar diversity |
+| **Agent eval harness** | 12 | 12 | Frozen IG scenarios + router-level vision/reels entry (agentevals-style matchers) |
+| Retrieval / RAG | 11 | 11 | Gallery + caption index, hybrid BM25+vector fusion, pillar diversity |
+| Trajectory eval | 4 | 4 | Subset/superset action matching utilities |
 | Learning loop | 5 | 5 | Verified trajectories, device memory, eval reports |
 | Smoke / API | 20 | 20 | Endpoints, inbox evaluate, protocol wiring |
 | Perception + navigation | 16 | 16 | Screen parsing, reels routing, protocol parity |
-| **Total** | **64** | **64** | |
+| **Total** | **92** | **92** | |
 
 **Agent scenario coverage** (`brain/tests/fixtures/agent_scenarios/`):
 
@@ -44,6 +48,9 @@ Last run: **2026-07-14** (local, `FRIDAY_LLM_PROVIDER=mock` — no GPU required)
 | `read_only_blocks_like` | Read-only mode blocks like mutations |
 | `budget_blocks_extra_likes` | Session like budget enforced server-side |
 | `post_requires_approval` | Post action requires human approval |
+| `vision_on_ambiguous_sparse_tree` | Failed/unverified step → brain requests screenshot |
+| `eager_reels_entry_from_home` | Comment-likes goal → navigate Reels before LLM |
+| `reels_goal_allows_navigate_or_intent` | Flexible subset match for Reels entry actions |
 
 Reproduce:
 
@@ -80,7 +87,7 @@ CI runs the full brain suite on every push to `brain/**` (see [`.github/workflow
 
 - **Remote brain / local hands** — phone sends accessibility tree; brain returns one JSON action per step.
 - **Server-side guards** — read-only mode, session budgets, and approval gates for `post`, `comment`, `dm`, `follow` (not prompt-only).
-- **RAG** — gallery curation + caption style retrieval over a local SQLite vector index ([`brain/app/retrieval/`](brain/app/retrieval/)).
+- **RAG** — gallery curation + caption style retrieval with hybrid BM25+vector search over SQLite ([`brain/app/retrieval/`](brain/app/retrieval/)).
 - **Observability** — per-step session traces at `GET /runs`, `GET /runs/{id}`, `GET /runs/metrics`.
 - **Mock LLM** — full pipeline in CI without GPU (`FRIDAY_LLM_PROVIDER=mock`).
 

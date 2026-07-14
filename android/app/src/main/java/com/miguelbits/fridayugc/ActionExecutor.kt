@@ -109,23 +109,13 @@ class ActionExecutor(
         }
 
         if (tab == "reels") {
+            // Deep link only — NO pager swipe fallback. Pager swipes fire from the left
+            // screen edge and produce erratic horizontal (often RIGHT) motion that
+            // conflicts with Android's back gesture and breaks autonomy.
             openReelsViaIntent()?.let { return it }
-            val dm = service.resources.displayMetrics
-            val screen = ScreenReader.read(
-                r,
-                service.packageName.orEmpty(),
-                "",
-            )
-            if (!CarouselDetector.hasCarouselPost(screen, dm.widthPixels, dm.heightPixels)) {
-                val pager = GestureHelper.swipeFeedPager(service, "left")
-                if (pager) {
-                    delay(2200)
-                    return Result(true)
-                }
-            }
         }
 
-        return Result(false, "tab not found: $tab (no a11y label or device memory)")
+        return Result(false, "tab not found: $tab (no a11y label, device memory, or deep link)")
     }
 
     private fun openReelsViaIntent(): Result? {
@@ -200,7 +190,12 @@ class ActionExecutor(
     }
 
     private suspend fun scroll(resp: StepResponse): Result {
-        val dir = strParam(resp, "direction") ?: "down"
+        val dir = strParam(resp, "direction")?.lowercase() ?: "down"
+        if (dir == "left" || dir == "right") {
+            val ok = GestureHelper.swipeFeedPager(service, dir)
+            delay(350)
+            return Result(ok, if (ok) null else "horizontal scroll gesture failed")
+        }
         val id = intParam(resp, "target_id")
         val node = if (id != null) ScreenReader.nodeAt(root(), id) else root()?.findScrollable()
         val action = when (dir) {
@@ -213,12 +208,16 @@ class ActionExecutor(
     }
 
     private suspend fun swipe(resp: StepResponse): Result {
-        val dir = strParam(resp, "direction") ?: "up"
-        val zone = strParam(resp, "zone")
+        val dir = strParam(resp, "direction")?.lowercase() ?: "up"
+        val zone = strParam(resp, "zone")?.lowercase()
         val reason = resp.reason
         val ok = when {
-            zone == "reels_rail" || (dir == "up" && reason.contains("next_reel")) ->
-                GestureHelper.swipeReelsNext(service)
+            zone == "feed_pager" || zone == "reels_rail" || (dir == "up" && reason.contains("next_reel")) ->
+                if (dir == "left" || dir == "right" || zone == "feed_pager") {
+                    GestureHelper.swipeFeedPager(service, dir.ifBlank { "left" })
+                } else {
+                    GestureHelper.swipeReelsNext(service)
+                }
             dir == "left" || dir == "right" ->
                 GestureHelper.swipeFeedPager(service, dir)
             else ->

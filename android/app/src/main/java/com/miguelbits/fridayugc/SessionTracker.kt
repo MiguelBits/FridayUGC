@@ -113,8 +113,7 @@ class SessionTracker {
             "follow", "unfollow" -> followsUsed++
             "save" -> savesUsed++
             "navigate" -> {
-                val tab = (params["tab"] as? JsonPrimitive)?.content?.lowercase()
-                if (tab == "reels") reelsTabOpened = true
+                // reelsTabOpened is set in AgentController after surface verification.
             }
             "tap" -> {
                 // Phase transitions for comment-likes are verified in AgentController after tap.
@@ -129,6 +128,10 @@ class SessionTracker {
                 }
             }
             "swipe" -> {
+                val dir = (params["direction"] as? JsonPrimitive)?.content?.lowercase()
+                if (dir == "left" && phase == "reels_comment_likes") {
+                    // reelsTabOpened is set in AgentController after surface verification.
+                }
                 reelsScrolled++
                 if (phase == "reels_comment_likes") {
                     CommentLikesRoutine.onActionCompleted(this, "swipe", ok = true)

@@ -26,15 +26,43 @@ def test_screen_state_block_in_prompt():
     assert "Cognitive mobile operator" in prompt
 
 
-def test_resolve_state_prefers_phone_classifier():
+def test_resolve_state_prefers_phone_classifier_when_tab_opened():
     state = ScreenState(screen_type="reels_viewer", selected_tab="reels", confidence=0.9)
     req = StepRequest(
         session_id="s1",
         goal="test",
         screen=Screen(app="com.instagram.android", elements=[ScreenElement(id=0, text="For you")]),
         screen_state=state,
+        session_context={"reels_tab_opened": 1},
+    )
+    # Home feed tabs visible — do not treat as reels even if phone said reels_viewer.
+    assert not is_reels_viewer(resolve_state(req))
+
+
+def test_resolve_state_keeps_reels_without_home_tabs():
+    state = ScreenState(screen_type="reels_viewer", selected_tab="reels", confidence=0.9)
+    req = StepRequest(
+        session_id="s1",
+        goal="test",
+        screen=Screen(app="com.instagram.android", elements=[]),
+        screen_state=state,
+        session_context={"reels_tab_opened": 1},
     )
     assert is_reels_viewer(resolve_state(req))
+
+
+def test_resolve_state_downgrades_false_positive_reels_without_tab():
+    state = ScreenState(screen_type="reels_viewer", selected_tab="reels", confidence=0.9)
+    req = StepRequest(
+        session_id="s1",
+        goal="test",
+        screen=Screen(app="com.instagram.android", elements=[]),
+        screen_state=state,
+        session_context={"reels_tab_opened": 0},
+    )
+    resolved = resolve_state(req)
+    assert resolved.screen_type == "home_feed"
+    assert not is_reels_viewer(resolved)
 
 
 def test_guard_blocks_swipe_on_home_feed_comment_likes():

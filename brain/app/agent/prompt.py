@@ -122,11 +122,13 @@ def fallback_step_data(req: StepRequest) -> dict:
             "needs_screenshot": False,
             "approval_required": False,
         }
-    if goal_wants_comment_likes(req.goal) and on_instagram(req.screen.app) and not on_reels_surface(state, req.session_context or {}):
+    if goal_wants_comment_likes(req.goal) and on_instagram(req.screen.app) and not on_reels_surface(
+        state, req.session_context or {}, req.screen
+    ):
         return {
-            "action": "intent",
-            "params": {"name": "enter_reels"},
-            "say": "Opening Reels.",
+            "action": "navigate",
+            "params": {"tab": "reels"},
+            "say": "Opening Reels tab.",
             "reason": f"Fallback — screen_type={state.screen_type}, need reels_viewer.",
             "done": False,
             "needs_screenshot": state.needs_vision,
@@ -474,22 +476,57 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
                 if kick:
                     return kick
 
-    if goal_wants_comment_likes(req.goal) and resp.action == "swipe":
+    if goal_wants_comment_likes(req.goal) and resp.action in {"swipe", "scroll"}:
         direction = str(resp.params.get("direction", "")).lower()
         if direction in {"left", "right"}:
+            ctx = req.session_context or {}
+            if not on_reels_surface(state, ctx, req.screen):
+                return StepResponse(
+                    action="navigate",
+                    params={"tab": "reels"},
+                    say="Opening Reels.",
+                    reason=f"Blocked horizontal {direction} before reels_viewer",
+                    done=False,
+                    needs_screenshot=False,
+                    approval_required=False,
+                )
             return StepResponse(
                 action="wait",
                 params={"ms": 400},
                 say="Stay on Reels — no horizontal swipes.",
-                reason=f"Blocked swipe {direction} during reels_comment_likes",
+                reason=f"Blocked {resp.action} {direction} during reels_comment_likes",
                 done=False,
                 needs_screenshot=False,
                 approval_required=False,
             )
 
+    if goal_wants_comment_likes(req.goal) and resp.action == "intent":
+        name = str(resp.params.get("name", "")).lower()
+        on_reels = on_reels_surface(state, ctx, req.screen)
+        if name == "enter_reels" and on_reels:
+            return StepResponse(
+                action="wait",
+                params={"ms": 400},
+                say="Already on Reels.",
+                reason="enter_reels skipped — already on reels surface",
+                done=False,
+                needs_screenshot=False,
+                approval_required=False,
+            )
+        if name in {"open_comments", "engage_comments", "next_reel", "watch_reel"} and not on_reels:
+            return StepResponse(
+                action="navigate",
+                params={"tab": "reels"},
+                say="Opening Reels first.",
+                reason=f"Blocked intent {name} — need reels_viewer, have {state.screen_type}",
+                done=False,
+                needs_screenshot=state.needs_vision,
+                approval_required=False,
+            )
+
     if goal_wants_comment_likes(req.goal) and resp.action == "navigate":
         tab = str(resp.params.get("tab", "")).lower()
-        if tab == "reels" and on_reels_surface(state, ctx):
+        if tab == "reels" and on_reels_surface(state, ctx, req.screen):
             return StepResponse(
                 action="wait",
                 params={"ms": 400},
@@ -527,7 +564,7 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
         if (
             ctx_int(ctx, "reels_scrolled") == 0
             and ctx_int(ctx, "comment_likes_this_reel") == 0
-            and not on_reels_surface(state, ctx)
+            and not on_reels_surface(state, ctx, req.screen)
         ):
             return StepResponse(
                 action="navigate",
@@ -540,11 +577,11 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
             )
 
     if state.screen_type == "home_feed" and resp.action in {"swipe", "scroll"} and goal_wants_comment_likes(req.goal):
-        if on_reels_surface(state, ctx) and resp.action == "swipe":
+        if on_reels_surface(state, ctx, req.screen) and resp.action == "swipe":
             direction = str(resp.params.get("direction", "")).lower()
             if direction == "up":
                 return resp
-        if not on_reels_surface(state, ctx):
+        if not on_reels_surface(state, ctx, req.screen):
             return StepResponse(
                 action="navigate",
                 params={"tab": "reels"},
@@ -608,7 +645,7 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
 
     # Last tap failed — don't retry tap (target_id is stale after long inference).
     if req.last_result and req.last_result.action == "tap" and req.last_result.ok is False:
-        if goal_wants_comment_likes(req.goal) and on_reels_surface(state, ctx):
+        if goal_wants_comment_likes(req.goal) and on_reels_surface(state, ctx, req.screen):
             from .playbook import comment_likes_kickstart
 
             kick = comment_likes_kickstart(req, state)

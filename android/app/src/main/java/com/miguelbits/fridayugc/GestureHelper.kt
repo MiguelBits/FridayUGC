@@ -62,20 +62,26 @@ object GestureHelper {
     }
 
     /**
-     * Horizontal pager swipe along the **left gutter** (avoids carousel post media in center).
-     * On Instagram home, swipe left opens the Reels tab — prefer bottom-nav when carousel visible.
+     * Horizontal pager swipe through the **center band** (avoids left-edge back gesture + carousels).
+     * Finger moves left → next tab to the right (Home → Reels on Instagram).
      */
     suspend fun swipeFeedPager(service: AccessibilityService, direction: String): Boolean {
         val dm = service.resources.displayMetrics
-        val y = dm.heightPixels * (0.45f + Random.nextFloat() * 0.12f)
-        val leftGutter = dm.widthPixels * (0.03f + Random.nextFloat() * 0.04f)
-        val leftReach = dm.widthPixels * (0.32f + Random.nextFloat() * 0.08f)
-        val rightReach = dm.widthPixels * (0.68f + Random.nextFloat() * 0.08f)
-        val rightGutter = dm.widthPixels * (0.97f - Random.nextFloat() * 0.04f)
-        val duration = Random.nextLong(360, 520)
-        return when (direction) {
-            "left" -> swipe(service, leftReach, y, leftGutter, y, duration)
-            "right" -> swipe(service, rightReach, y, rightGutter, y, duration)
+        val w = dm.widthPixels.toFloat()
+        val y = dm.heightPixels * (0.42f + Random.nextFloat() * 0.14f)
+        val duration = Random.nextLong(380, 540)
+        val dir = direction.lowercase()
+        return when (dir) {
+            "left" -> {
+                val x1 = w * (0.72f + Random.nextFloat() * 0.08f)
+                val x2 = w * (0.22f + Random.nextFloat() * 0.08f)
+                swipe(service, x1, y, x2, y, duration)
+            }
+            "right" -> {
+                val x1 = w * (0.22f + Random.nextFloat() * 0.08f)
+                val x2 = w * (0.72f + Random.nextFloat() * 0.08f)
+                swipe(service, x1, y, x2, y, duration)
+            }
             else -> false
         }
     }

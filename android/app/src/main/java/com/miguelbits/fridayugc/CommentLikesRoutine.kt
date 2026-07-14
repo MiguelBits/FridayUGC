@@ -4,6 +4,7 @@ import android.util.DisplayMetrics
 import com.miguelbits.fridayugc.model.Screen
 import com.miguelbits.fridayugc.model.ScreenState
 import com.miguelbits.fridayugc.model.StepResponse
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
@@ -110,7 +111,11 @@ object CommentLikesRoutine {
 
     /** Tap comments bubble — 3rd rail icon (below like, above share/audio). */
     private fun openCommentsTap(screen: Screen, w: Int, h: Int): StepResponse {
-        val params = ReelsTargetFinder.commentsTapParams(screen, w, h)
+        val params: Map<String, JsonElement> = ReelsTargetFinder.commentsTapParams(screen, w, h)
+            ?: mapOf(
+                "x" to JsonPrimitive((w * RAIL_X).toInt()),
+                "y" to JsonPrimitive((h * COMMENTS_ICON_Y).toInt()),
+            )
         return StepResponse(
             action = "tap",
             params = params,
@@ -120,7 +125,7 @@ object CommentLikesRoutine {
     }
 
     /** Hearts inside bottom sheet only — exclude reel-like rail zone. */
-    private fun findSheetHeart(screen: Screen, row: Int, w: Int, h: Int): Map<String, JsonPrimitive>? {
+    private fun findSheetHeart(screen: Screen, row: Int, w: Int, h: Int): Map<String, JsonElement>? {
         val sheetMinY = (h * SHEET_MIN_Y).toInt()
         val reelLikeMaxY = (h * REEL_LIKE_Y_MAX).toInt()
         val candidates = screen.elements.filter { e ->

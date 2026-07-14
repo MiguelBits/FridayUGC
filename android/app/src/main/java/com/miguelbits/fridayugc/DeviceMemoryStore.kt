@@ -30,13 +30,30 @@ class DeviceMemoryStore(context: Context) {
         )
     }
 
-    fun bump(action: String, params: Map<String, JsonElement>, verified: String, igVersion: String = "") {
+    /**
+     * Record a verified/failed tap.
+     *
+     * @param resolvedXY when params carried target_id (not x,y), pass the element
+     *   center from the accessibility tree so learning stores usable coords instead of 0,0.
+     */
+    fun bump(
+        action: String,
+        params: Map<String, JsonElement>,
+        verified: String,
+        igVersion: String = "",
+        resolvedXY: Pair<Int, Int>? = null,
+    ) {
         val uiKey = uiKeyFor(action, params) ?: return
-        val x = (params["x"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
-        val y = (params["y"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+        val paramX = (params["x"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+        val paramY = (params["y"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+        val x = if (paramX > 0) paramX else resolvedXY?.first ?: 0
+        val y = if (paramY > 0) paramY else resolvedXY?.second ?: 0
         val targetId = (params["target_id"] as? JsonPrimitive)?.content.orEmpty()
         val now = Instant.now().toString()
         val success = verified == "verified"
+        // Never poison the store with a 0,0 "success" — memory would return a broken
+        // hit on next boot. Failures without coords still count for fail_count.
+        if (success && (x <= 0 || y <= 0)) return
         db.execSQL(
             """
             INSERT INTO device_memory(ui_key, x, y, resource_hint, success_count, fail_count, last_verified_at, ig_version)
@@ -61,6 +78,52 @@ class DeviceMemoryStore(context: Context) {
                 igVersion,
             ),
         )
+    }
+
+    /**
+     * Overwrite the local memory with entries pulled from the brain. Used at session
+     * start so cold-start on a fresh install / cleared cache still has memory hits.
+     */
+    fun upsertMany(entries: List<DeviceMemoryEntry>) {
+        val now = Instant.now().toString()
+        db.beginTransaction()
+        try {
+            for (e in entries) {
+                if (e.uiKey.isBlank() || e.x <= 0 || e.y <= 0) continue
+                db.execSQL(
+                    """
+                    INSERT INTO device_memory(ui_key, x, y, resource_hint, success_count, fail_count, last_verified_at, ig_version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(ui_key) DO UPDATE SET
+                        x = excluded.x,
+                        y = excluded.y,
+                        resource_hint = CASE WHEN excluded.resource_hint != '' THEN excluded.resource_hint ELSE device_memory.resource_hint END,
+                        success_count = MAX(device_memory.success_count, excluded.success_count),
+                        fail_count = MIN(device_memory.fail_count, excluded.fail_count),
+                        last_verified_at = excluded.last_verified_at,
+                        ig_version = CASE WHEN excluded.ig_version != '' THEN excluded.ig_version ELSE device_memory.ig_version END
+                    """.trimIndent(),
+                    arrayOf(
+                        e.uiKey,
+                        e.x,
+                        e.y,
+                        e.resourceHint,
+                        maxOf(e.successCount, 1),
+                        e.failCount,
+                        e.lastVerifiedAt.ifBlank { now },
+                        e.igVersion,
+                    ),
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    suspend fun hydrateFromBrain(brain: BrainClient, deviceId: String) {
+        val remote = runCatching { brain.getDeviceMemory(deviceId) }.getOrNull() ?: return
+        if (remote.entries.isNotEmpty()) upsertMany(remote.entries)
     }
 
     fun lookup(uiKey: String): Pair<Int, Int>? {
@@ -115,13 +178,17 @@ class DeviceMemoryStore(context: Context) {
     }
 
     private fun uiKeyFor(action: String, params: Map<String, JsonElement>): String? {
+        // Explicit hint from IntentResolver wins — one schema across phone + brain:
+        //   nav_reels, nav_home, comments_icon, comment_heart, action_like_story
+        val explicit = (params["ui_key"] as? JsonPrimitive)?.content?.trim()
+        if (!explicit.isNullOrEmpty()) return explicit
         val tab = (params["tab"] as? JsonPrimitive)?.content?.lowercase()
         if (tab != null) return "nav_$tab"
         return when (action) {
-            "like_comment" -> "comments_icon"
+            "like_comment" -> "comment_heart"
             "tap", "like", "like_story", "save", "follow" -> "action_$action"
             "navigate" -> "navigate"
-            "swipe" -> "reels_swipe"
+            "swipe" -> null // do not learn swipes as pointer targets
             else -> null
         }
     }
