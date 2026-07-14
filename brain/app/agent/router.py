@@ -9,14 +9,27 @@ from ..operator.service import OperatorService
 from ..persona import get_persona
 from ..runs import RunStore, StepTrace
 from .actions import StepRequest, StepResponse
+from .playbook import comment_likes_kickstart, comment_likes_like_hearts
+from .perception import resolve_state
 from .prompt import (
     apply_guards,
     build_step_user_prompt,
+    detect_loop,
     fallback_step_data,
     goal_wants_comment_likes,
     parse_step_json,
     response_from_json,
 )
+
+
+def _should_use_playbook(req: StepRequest) -> bool:
+    """Playbook is recovery-only — not routine choreography."""
+    if not goal_wants_comment_likes(req.goal):
+        return False
+    lr = req.last_result
+    if lr and (not lr.ok or lr.verified in {"failed", "unverified"}):
+        return True
+    return detect_loop(req.history)
 
 
 def _is_ambiguous_step(req: StepRequest) -> bool:
@@ -135,6 +148,28 @@ async def decide_legacy(req: StepRequest, persona_key: str = "lorena") -> StepRe
             guard_reason="vision_on_ambiguous",
         )
         return resp
+
+    state = resolve_state(req)
+    if _should_use_playbook(req):
+        kick = comment_likes_like_hearts(req, state) or comment_likes_kickstart(req, state)
+        if kick is not None:
+            kick = apply_guards(req, kick)
+            operator.record_step(
+                session_id=req.session_id,
+                step=req.step,
+                action=kick,
+                response=kick.model_dump(),
+                session_context=req.session_context,
+            )
+            _record_step(
+                req,
+                kick,
+                latency_ms=0.0,
+                guard_triggered=False,
+                guard_reason="playbook_kickstart",
+            )
+            return kick
+
     persona = get_persona(persona_key)
     user = build_step_user_prompt(req)
     shot = (req.screen.screenshot_b64 or "").strip()

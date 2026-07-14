@@ -12,6 +12,7 @@ ActionName = Literal[
     "press",
     "open_app",
     "wait",
+    "intent",
     "navigate",
     "post",
     "comment",

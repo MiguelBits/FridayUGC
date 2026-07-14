@@ -58,5 +58,72 @@ def test_fallback_navigates_before_swipe():
         session_context={"phase": "reels_comment_likes"},
     )
     data = fallback_step_data(req)
-    assert data["action"] == "navigate"
-    assert data["params"]["tab"] == "reels"
+    assert data["action"] == "intent"
+    assert data["params"]["name"] == "enter_reels"
+
+
+def test_guard_blocks_horizontal_swipe_on_reels():
+    from app.agent.actions import ScreenState
+
+    req = StepRequest(
+        session_id="s1",
+        goal="Like comments on 10 reels",
+        step=2,
+        screen=Screen(app="com.instagram.android", elements=[]),
+        screen_state=ScreenState(screen_type="unknown", confidence=0.4),
+        session_context={"phase": "reels_comment_likes", "reels_tab_opened": 1},
+    )
+    for direction in ("left", "right"):
+        raw = StepResponse(action="swipe", params={"direction": direction}, reason="nav")
+        guarded = apply_guards(req, raw)
+        assert guarded.action == "wait", direction
+
+
+def test_guard_skips_repeat_navigate_when_reels_opened():
+    from app.agent.actions import ScreenState
+
+    req = StepRequest(
+        session_id="s1",
+        goal="Like comments on 10 reels",
+        step=4,
+        screen=Screen(app="com.instagram.android", elements=[]),
+        screen_state=ScreenState(screen_type="unknown", confidence=0.4),
+        session_context={"phase": "reels_comment_likes", "reels_tab_opened": 1},
+    )
+    raw = StepResponse(action="navigate", params={"tab": "reels"}, reason="open reels")
+    guarded = apply_guards(req, raw)
+    assert guarded.action == "wait"
+
+
+def test_guard_blocks_view_story_for_comment_likes():
+    from app.agent.actions import ScreenState
+
+    req = StepRequest(
+        session_id="s1",
+        goal="Like comments on 10 reels",
+        step=2,
+        screen=Screen(app="com.instagram.android", elements=[]),
+        screen_state=ScreenState(screen_type="home_feed", confidence=0.9),
+        session_context={"phase": "reels_comment_likes"},
+    )
+    raw = StepResponse(action="view_story", params={}, reason="watch story")
+    guarded = apply_guards(req, raw)
+    assert guarded.action == "navigate"
+    assert guarded.params["tab"] == "reels"
+
+
+def test_guard_back_from_story_viewer():
+    from app.agent.actions import ScreenState
+
+    req = StepRequest(
+        session_id="s1",
+        goal="Like comments on 10 reels",
+        step=3,
+        screen=Screen(app="com.instagram.android", elements=[]),
+        screen_state=ScreenState(screen_type="story_viewer", confidence=0.9),
+        session_context={"phase": "reels_comment_likes"},
+    )
+    raw = StepResponse(action="swipe", params={"direction": "up"}, reason="scroll")
+    guarded = apply_guards(req, raw)
+    assert guarded.action == "press"
+    assert guarded.params["key"] == "back"

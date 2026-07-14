@@ -25,6 +25,9 @@ class SessionTracker {
     var savesUsed = 0
     var savesMax = 5
     var phase: String = "reels"
+    var reelsTabOpened = false
+    var reelsSwipeAttempted = false
+    var commentsSheetOpen = false
 
     fun applyFromBudget(budget: SessionBudget) {
         likesMax = budget.likesMax
@@ -61,6 +64,9 @@ class SessionTracker {
         savesUsed = intOf("saves_used", savesUsed)
         savesMax = intOf("saves_max", savesMax)
         phase = (ctx["phase"] as? JsonPrimitive)?.content ?: phase
+        reelsTabOpened = intOf("reels_tab_opened", if (reelsTabOpened) 1 else 0) == 1
+        reelsSwipeAttempted = intOf("reels_swipe_attempted", if (reelsSwipeAttempted) 1 else 0) == 1
+        commentsSheetOpen = intOf("comments_sheet_open", if (commentsSheetOpen) 1 else 0) == 1
     }
 
     fun toContext(): Map<String, JsonElement> = mapOf(
@@ -83,6 +89,9 @@ class SessionTracker {
         "saves_used" to JsonPrimitive(savesUsed),
         "saves_max" to JsonPrimitive(savesMax),
         "phase" to JsonPrimitive(phase),
+        "reels_tab_opened" to JsonPrimitive(if (reelsTabOpened) 1 else 0),
+        "reels_swipe_attempted" to JsonPrimitive(if (reelsSwipeAttempted) 1 else 0),
+        "comments_sheet_open" to JsonPrimitive(if (commentsSheetOpen) 1 else 0),
     )
 
     fun record(action: String, params: Map<String, JsonElement> = emptyMap()) {
@@ -101,9 +110,16 @@ class SessionTracker {
             "dm" -> dmsUsed++
             "follow", "unfollow" -> followsUsed++
             "save" -> savesUsed++
+            "navigate" -> {
+                val tab = (params["tab"] as? JsonPrimitive)?.content?.lowercase()
+                if (tab == "reels") reelsTabOpened = true
+            }
             "press" -> {
                 val key = (params["key"] as? JsonPrimitive)?.content?.lowercase()
-                if (key == "back") commentLikesThisReel = 0
+                if (key == "back") {
+                    commentLikesThisReel = 0
+                    commentsSheetOpen = false
+                }
             }
         }
     }

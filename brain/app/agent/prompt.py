@@ -7,29 +7,30 @@ from pathlib import Path
 from ..config import get_settings
 from ..ugc.operator import playbook_text
 from .actions import Screen, ScreenState, StepRequest, StepResponse
-from .perception import is_reels_viewer, resolve_state, screen_state_block
+from .intents import INTENT_SPEC
+from .perception import is_reels_viewer, on_comments_sheet, on_reels_surface, resolve_state, screen_state_block
 
 VALID_ACTIONS = frozenset({
-    "tap", "scroll", "swipe", "type", "press", "open_app", "wait", "navigate",
+    "tap", "scroll", "swipe", "type", "press", "open_app", "wait", "intent", "navigate",
     "post", "comment", "dm", "like", "like_story", "like_comment", "view_story", "follow",
     "unfollow", "save", "done", "fail",
 })
 
 COMMENT_LIKES_PLAYBOOK = (
-    "\nINSTAGRAM WORKFLOW — reels_comment_likes:\n"
-    "PRECONDITION: screen_type MUST be reels_viewer. If home_feed or unknown → navigate tab reels first.\n"
-    "1. tap comments icon on current reel (right rail) — use screenshot if no element.\n"
-    "2. like_comment x5 on hearts in comments_sheet.\n"
-    "3. press back → back to reels_viewer.\n"
-    "4. swipe up → next reel. Increment reels_scrolled.\n"
-    "5. Repeat until reels_scrolled >= reels_max.\n"
+    "\nINSTAGRAM WORKFLOW — reels_comment_likes (intent-first):\n"
+    "1. If not reels_viewer → intent enter_reels (or navigate tab=reels).\n"
+    "2. On reels_viewer → intent watch_reel (dwell 2–5s), then intent open_comments.\n"
+    "3. On comments_sheet → intent engage_comments until per-reel budget met, then intent go_back.\n"
+    "4. intent next_reel — repeat until reels_scrolled >= reels_max.\n"
+    "Phone resolves intents with vision + device memory — never hardcoded coordinates.\n"
 )
 
 AGENT_ROLE = (
-    "\nROLE: General mobile operator agent. You plan ONE action per step for whatever app is foreground.\n"
-    "Today the target app profile is INSTAGRAM (com.instagram.android) for @itslorenamor UGC.\n"
+    "\nROLE: Cognitive mobile operator. Plan ONE high-level step per turn — prefer intents over raw taps.\n"
+    "Target app: INSTAGRAM (com.instagram.android) for @itslorenamor UGC.\n"
     "You receive STRUCTURED SCREEN_STATE from the phone classifier — trust it over single words in the tree.\n"
     "When needs_vision=true or a screenshot is attached, USE THE IMAGE — icon-only UIs are blind in elements.\n"
+    "Behave like a human: vary dwell times, skip boring reels, do not repeat failed actions.\n"
 )
 
 PERCEPTION_RULES = (
@@ -42,13 +43,22 @@ PERCEPTION_RULES = (
 
 NEGATIVES = (
     "\nNEVER (violations waste steps):\n"
-    "- NEVER swipe/scroll to 'reach' Reels — use navigate tab reels.\n"
-    "- NEVER swipe on home_feed when goal needs reels_viewer or comments_sheet work.\n"
+    "- NEVER swipe LEFT or RIGHT during reels work — use intent enter_reels or navigate tab=reels; then intent next_reel only.\n"
+    "- NEVER tap story circles at the TOP of home feed — that opens Stories, not Reels.\n"
+    "- NEVER use view_story or like_story when goal is reels / comment-likes on Reels.\n"
     "- NEVER open Chrome/browser/instagram.com — only open_app com.instagram.android.\n"
     "- NEVER post new comments when goal is comment LIKES (use like_comment only).\n"
     "- NEVER return done before SESSION_BUDGET phase goals are met.\n"
     "- NEVER tap without x,y or target_id from SCREEN ELEMENTS / screenshot.\n"
     "- NEVER assume executor ok=true means success — check LAST_ACTION verified field.\n"
+)
+
+INSTAGRAM_NAV = (
+    "\nINSTAGRAM NAVIGATION (prefer intents — phone binds motor at execution time):\n"
+    "- STORIES: horizontal avatar circles at TOP of home feed → opens story_viewer (full-screen stories).\n"
+    "- REELS: intent enter_reels — phone tries bottom nav, feed pager swipe, deep link, device memory.\n"
+    "- REELS alt: {\"action\":\"navigate\",\"params\":{\"tab\":\"reels\"}} — never tap top story tray.\n"
+    "- If screen_type=story_viewer: intent go_back, then intent enter_reels.\n"
 )
 
 UI_UNDERSTANDING = (
@@ -57,14 +67,14 @@ UI_UNDERSTANDING = (
 )
 
 JSON_EXAMPLE = (
-    '{"action":"swipe","params":{"direction":"up"},"say":"Scrolling.","reason":"next reel",'
+    '{"action":"intent","params":{"name":"next_reel"},"say":"Next reel.","reason":"finished watching",'
     '"done":false,"needs_screenshot":false,"approval_required":false}'
 )
 
 ACTION_SPEC = (
-    "Valid actions: tap, scroll, swipe, type, press, open_app, wait, navigate, "
+    "Valid actions: intent (preferred), tap, scroll, swipe, type, press, open_app, wait, navigate, "
     "like, like_story, like_comment, view_story, save, follow, unfollow, post, comment, dm, done, fail. "
-    "like_comment = heart on a comment row. Put parameters inside params object (see example)."
+    "intent params: {\"name\":\"<intent>\", ...}. like_comment = heart on a comment row."
 )
 
 INSTAGRAM_PACKAGE = "com.instagram.android"
@@ -112,16 +122,23 @@ def fallback_step_data(req: StepRequest) -> dict:
             "needs_screenshot": False,
             "approval_required": False,
         }
-    if goal_wants_comment_likes(req.goal) and on_instagram(req.screen.app) and not is_reels_viewer(state):
+    if goal_wants_comment_likes(req.goal) and on_instagram(req.screen.app) and not on_reels_surface(state, req.session_context or {}):
         return {
-            "action": "navigate",
-            "params": {"tab": "reels"},
-            "say": "Opening Reels tab.",
+            "action": "intent",
+            "params": {"name": "enter_reels"},
+            "say": "Opening Reels.",
             "reason": f"Fallback — screen_type={state.screen_type}, need reels_viewer.",
             "done": False,
             "needs_screenshot": state.needs_vision,
             "approval_required": False,
         }
+    kick = None
+    if goal_wants_comment_likes(req.goal):
+        from .playbook import comment_likes_kickstart
+
+        kick = comment_likes_kickstart(req, state)
+    if kick:
+        return kick.model_dump()
     if state.needs_vision and not (req.screen.screenshot_b64 or "").strip():
         return {
             "action": "wait",
@@ -133,9 +150,9 @@ def fallback_step_data(req: StepRequest) -> dict:
             "approval_required": False,
         }
     return {
-        "action": "swipe",
-        "params": {"direction": "up"},
-        "say": "Scrolling.",
+        "action": "intent",
+        "params": {"name": "next_reel"},
+        "say": "Next reel.",
         "reason": "Fallback — model output was not valid JSON.",
         "done": False,
         "needs_screenshot": False,
@@ -270,6 +287,8 @@ def build_step_user_prompt(req: StepRequest) -> str:
     if goal_wants_comment_likes(req.goal) or ctx.get("phase") == "reels_comment_likes":
         workflow_hint = COMMENT_LIKES_PLAYBOOK
 
+    nav_hint = INSTAGRAM_NAV if goal_wants_instagram(req.goal) or on_instagram(req.screen.app) else ""
+
     last_line = ""
     if req.last_result:
         lr = req.last_result
@@ -299,6 +318,8 @@ def build_step_user_prompt(req: StepRequest) -> str:
         f"{AGENT_ROLE}"
         f"{PERCEPTION_RULES}"
         f"{NEGATIVES}"
+        f"{nav_hint}"
+        f"{INTENT_SPEC}"
         "Return ONE action as valid JSON only (double-quoted keys, no markdown, no prose). "
         "Fields: action, params, say, reason, done, needs_screenshot, approval_required.\n"
         f"INSTAGRAM PACKAGE: {INSTAGRAM_PACKAGE!r} — never browser/URL.\n"
@@ -437,11 +458,81 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
             approval_required=False,
         )
 
+    if goal_wants_comment_likes(req.goal) and on_comments_sheet(state, ctx):
+        per_reel = ctx_int(ctx, "comment_likes_per_reel", 5)
+        if ctx_int(ctx, "comment_likes_this_reel") < per_reel:
+            if resp.action in {"scroll", "swipe"}:
+                from .playbook import comment_likes_like_hearts
+
+                kick = comment_likes_like_hearts(req, state)
+                if kick:
+                    return kick
+            if resp.action == "tap" and "comment" not in (resp.reason or "").lower():
+                from .playbook import comment_likes_like_hearts
+
+                kick = comment_likes_like_hearts(req, state)
+                if kick:
+                    return kick
+
+    if goal_wants_comment_likes(req.goal) and resp.action == "swipe":
+        direction = str(resp.params.get("direction", "")).lower()
+        if direction in {"left", "right"}:
+            return StepResponse(
+                action="wait",
+                params={"ms": 400},
+                say="Stay on Reels — no horizontal swipes.",
+                reason=f"Blocked swipe {direction} during reels_comment_likes",
+                done=False,
+                needs_screenshot=False,
+                approval_required=False,
+            )
+
+    if goal_wants_comment_likes(req.goal) and resp.action == "navigate":
+        tab = str(resp.params.get("tab", "")).lower()
+        if tab == "reels" and on_reels_surface(state, ctx):
+            from .playbook import comment_likes_kickstart
+
+            kick = comment_likes_kickstart(req, state)
+            if kick:
+                return kick
+            return StepResponse(
+                action="wait",
+                params={"ms": 400},
+                say="Already on Reels.",
+                reason="reels_tab_opened — skip repeat navigate",
+                done=False,
+                needs_screenshot=False,
+                approval_required=False,
+            )
+
+    if goal_wants_comment_likes(req.goal) and resp.action in {"view_story", "like_story"}:
+        return StepResponse(
+            action="navigate",
+            params={"tab": "reels"},
+            say="Stories blocked — opening Reels.",
+            reason=f"Goal is Reels comment-likes, not stories (blocked {resp.action})",
+            done=False,
+            needs_screenshot=False,
+            approval_required=False,
+        )
+
+    if goal_wants_comment_likes(req.goal) and state.screen_type == "story_viewer":
+        if resp.action != "press":
+            return StepResponse(
+                action="press",
+                params={"key": "back"},
+                say="Leaving Stories.",
+                reason="story_viewer is wrong surface for comment-likes — back then navigate reels",
+                done=False,
+                needs_screenshot=False,
+                approval_required=False,
+            )
+
     if goal_wants_comment_likes(req.goal) and resp.action in {"swipe", "scroll"}:
         if (
             ctx_int(ctx, "reels_scrolled") == 0
             and ctx_int(ctx, "comment_likes_this_reel") == 0
-            and not is_reels_viewer(state)
+            and not on_reels_surface(state, ctx)
         ):
             return StepResponse(
                 action="navigate",
@@ -454,15 +545,20 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
             )
 
     if state.screen_type == "home_feed" and resp.action in {"swipe", "scroll"} and goal_wants_comment_likes(req.goal):
-        return StepResponse(
-            action="navigate",
-            params={"tab": "reels"},
-            say="Leaving home feed for Reels.",
-            reason="Do not swipe home feed during comment-likes goal",
-            done=False,
-            needs_screenshot=False,
-            approval_required=False,
-        )
+        if on_reels_surface(state, ctx) and resp.action == "swipe":
+            direction = str(resp.params.get("direction", "")).lower()
+            if direction == "up":
+                return resp
+        if not on_reels_surface(state, ctx):
+            return StepResponse(
+                action="navigate",
+                params={"tab": "reels"},
+                say="Leaving home feed for Reels.",
+                reason="Do not swipe home feed during comment-likes goal",
+                done=False,
+                needs_screenshot=False,
+                approval_required=False,
+            )
 
     if (
         state.confidence < 0.45
@@ -517,6 +613,12 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
 
     # Last tap failed — don't retry tap (target_id is stale after long inference).
     if req.last_result and req.last_result.action == "tap" and req.last_result.ok is False:
+        if goal_wants_comment_likes(req.goal) and on_reels_surface(state, ctx):
+            from .playbook import comment_likes_kickstart
+
+            kick = comment_likes_kickstart(req, state)
+            if kick:
+                return kick
         if goal_wants_comment_likes(req.goal):
             return StepResponse(
                 action="navigate",

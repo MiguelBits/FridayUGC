@@ -28,6 +28,37 @@ object ScreenClassifier {
         }
 
         val activityLower = activityClass.lowercase()
+        if (activityLower.contains("story") && !activityLower.contains("history")) {
+            signals.add("activity suggests story viewer")
+            return ScreenState(
+                appPackage = screen.app,
+                activityClass = activityClass,
+                screenType = "story_viewer",
+                selectedTab = "home",
+                confidence = 0.9f,
+                elementCount = screen.elements.size,
+                signals = signals,
+                needsVision = false,
+            )
+        }
+
+        if (
+            texts.any { it.contains("reply to") && it.contains("story") } ||
+            texts.any { it.contains("send message") && it.contains("story") }
+        ) {
+            signals.add("story viewer chrome")
+            return ScreenState(
+                appPackage = screen.app,
+                activityClass = activityClass,
+                screenType = "story_viewer",
+                selectedTab = "home",
+                confidence = 0.88f,
+                elementCount = screen.elements.size,
+                signals = signals,
+                needsVision = false,
+            )
+        }
+
         if (activityLower.contains("clips") || activityLower.contains("reel")) {
             signals.add("activity suggests reels")
             return ScreenState(
@@ -42,7 +73,11 @@ object ScreenClassifier {
             )
         }
 
-        if (texts.any { it.contains("add a comment") || it.contains("reply") && it.contains("comment") }) {
+        if (texts.any {
+            it.contains("add a comment") || it.contains("add comment") ||
+                (it.contains("view") && it.contains("comment")) ||
+                it.contains("comments") && !it.contains("selected")
+        }) {
             signals.add("comment composer visible")
             return ScreenState(
                 appPackage = screen.app,
@@ -72,8 +107,43 @@ object ScreenClassifier {
             }
         }
 
+        val hasFeedTabs = texts.any { it.contains("for you") || it.contains("following") }
+        val reelsNavSelected = texts.any { it.contains("reels") && it.contains("selected") }
+        val bigScrollable = screen.elements.any { it.scrollable && it.h > 400 && it.w > 200 }
+
+        if (reelsNavSelected && !hasFeedTabs) {
+            signals.add("reels tab selected, no home feed tabs")
+            return ScreenState(
+                appPackage = screen.app,
+                activityClass = activityClass,
+                screenType = "reels_viewer",
+                selectedTab = "reels",
+                confidence = 0.9f,
+                elementCount = screen.elements.size,
+                signals = signals,
+                needsVision = screen.elements.size < 8,
+            )
+        }
+
+        if (!hasFeedTabs && bigScrollable && screen.elements.size < 22) {
+            signals.add("full-screen scrollable without home tabs = reels pager")
+            return ScreenState(
+                appPackage = screen.app,
+                activityClass = activityClass,
+                screenType = "reels_viewer",
+                selectedTab = "reels",
+                confidence = 0.82f,
+                elementCount = screen.elements.size,
+                signals = signals,
+                needsVision = screen.elements.size < 8,
+            )
+        }
+
         if (texts.any { it.contains("for you") || it.contains("following") }) {
             signals.add("home feed tabs visible")
+            if (texts.any { it.contains("your story") || it.contains("'s story") || it.contains("story,") }) {
+                signals.add("story tray at top — do NOT tap; use navigate tab reels for Reels")
+            }
             return ScreenState(
                 appPackage = screen.app,
                 activityClass = activityClass,
@@ -115,8 +185,8 @@ object ScreenClassifier {
             )
         }
 
-        val bigScrollable = screen.elements.any { it.scrollable && it.h > 400 && it.w > 200 }
-        if (bigScrollable && screen.elements.size < 15) {
+        val bigScrollable2 = screen.elements.any { it.scrollable && it.h > 400 && it.w > 200 }
+        if (bigScrollable2 && screen.elements.size < 15) {
             signals.add("sparse tree + large scrollable = reel viewer heuristic")
             return ScreenState(
                 appPackage = screen.app,
@@ -169,6 +239,17 @@ object ScreenClassifier {
             signals = signals,
             needsVision = true,
         )
+    }
+
+    /** Heuristic when classifier is blind but swipe-left already landed on Reels. */
+    fun likelyReelsSurface(state: ScreenState, screen: Screen): Boolean {
+        if (state.screenType == "reels_viewer") return true
+        val texts = screen.elements.map { it.text.lowercase() }
+        val hasFeedTabs = texts.any { it.contains("for you") || it.contains("following") }
+        if (hasFeedTabs) return false
+        val reelsSelected = texts.any { it.contains("reels") && it.contains("selected") }
+        val bigScroll = screen.elements.any { it.scrollable && it.h > 400 && it.w > 200 }
+        return reelsSelected || (bigScroll && screen.elements.size < 22)
     }
 
     private fun inferTab(texts: List<String>, signals: MutableList<String>): String {
