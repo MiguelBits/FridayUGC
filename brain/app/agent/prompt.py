@@ -490,11 +490,6 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
     if goal_wants_comment_likes(req.goal) and resp.action == "navigate":
         tab = str(resp.params.get("tab", "")).lower()
         if tab == "reels" and on_reels_surface(state, ctx):
-            from .playbook import comment_likes_kickstart
-
-            kick = comment_likes_kickstart(req, state)
-            if kick:
-                return kick
             return StepResponse(
                 action="wait",
                 params={"ms": 400},

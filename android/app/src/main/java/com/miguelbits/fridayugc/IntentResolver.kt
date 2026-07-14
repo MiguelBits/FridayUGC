@@ -1,5 +1,6 @@
 package com.miguelbits.fridayugc
 
+import com.miguelbits.fridayugc.model.GroundRequest
 import com.miguelbits.fridayugc.model.Screen
 import com.miguelbits.fridayugc.model.ScreenState
 import com.miguelbits.fridayugc.model.StepResponse
@@ -7,12 +8,13 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.random.Random
 
 /**
- * Translates brain intents into concrete motor actions at execution time.
- * Binds targets from fresh accessibility tree + device memory — no hardcoded coordinates.
+ * Translates brain intents into motor actions at execution time.
+ * Binding order: accessibility → device memory → Gemma 3 vision grounding (local, no OpenAI).
  */
 class IntentResolver(
     private val service: FridayAccessibilityService,
     private val memoryStore: DeviceMemoryStore,
+    private val brain: BrainClient,
 ) {
     data class ResolveResult(
         val response: StepResponse,
@@ -24,13 +26,14 @@ class IntentResolver(
         screen: Screen,
         screenState: ScreenState,
         tracker: SessionTracker,
+        screenshotB64: String? = null,
     ): ResolveResult {
         val name = (intent.params["name"] as? JsonPrimitive)?.content?.lowercase().orEmpty()
         return when (name) {
             "enter_reels" -> resolveEnterReels(screenState)
             "watch_reel", "dwell" -> resolveDwell(intent)
-            "open_comments" -> resolveOpenComments(screen, screenState)
-            "engage_comments" -> resolveEngageComments(screen, tracker)
+            "open_comments" -> resolveOpenComments(screen, screenState, screenshotB64)
+            "engage_comments" -> resolveEngageComments(screen, tracker, screenshotB64)
             "next_reel" -> ResolveResult(
                 StepResponse(action = "swipe", params = mapOf("direction" to JsonPrimitive("up"))),
             )
@@ -87,16 +90,20 @@ class IntentResolver(
         )
     }
 
-    private fun resolveOpenComments(screen: Screen, screenState: ScreenState): ResolveResult {
+    private suspend fun resolveOpenComments(
+        screen: Screen,
+        screenState: ScreenState,
+        screenshotB64: String?,
+    ): ResolveResult {
         if (screenState.screenType == "comments_sheet") {
             return ResolveResult(
                 StepResponse(action = "wait", params = mapOf("ms" to JsonPrimitive(200))),
             )
         }
-        val root = service.rootInActiveWindow
-        ScreenReader.indexByText(root, "comment", "comments")?.let { idx ->
+        val dm = service.resources.displayMetrics
+        ReelsTargetFinder.findCommentsElement(screen, dm.widthPixels, dm.heightPixels)?.let { e ->
             return ResolveResult(
-                StepResponse(action = "tap", params = mapOf("target_id" to JsonPrimitive(idx))),
+                StepResponse(action = "tap", params = mapOf("target_id" to JsonPrimitive(e.id))),
             )
         }
         memoryStore.lookup("comments_icon")?.let { (x, y) ->
@@ -104,47 +111,42 @@ class IntentResolver(
                 StepResponse(action = "tap", params = mapOf("x" to JsonPrimitive(x), "y" to JsonPrimitive(y))),
             )
         }
-        for (e in screen.elements) {
-            if (!e.clickable || e.w <= 0 || e.h <= 0) continue
-            val cx = e.x + e.w / 2
-            val screenW = screen.elements.maxOfOrNull { it.x + it.w } ?: 0
-            if (screenW > 0 && cx > screenW * 0.72) {
-                return ResolveResult(
-                    StepResponse(action = "tap", params = mapOf("target_id" to JsonPrimitive(e.id))),
-                )
-            }
-        }
-        return ResolveResult(
-            StepResponse(
-                action = "wait",
-                params = mapOf("ms" to JsonPrimitive(300)),
-                needsScreenshot = true,
-                reason = "open_comments needs vision",
-            ),
-            needsScreenshot = true,
+        return visionGround(
+            anchor = "comments_icon",
+            screen = screen,
+            screenState = screenState,
+            rowIndex = 0,
+            screenshotB64 = screenshotB64,
+            fallbackAction = "tap",
         )
     }
 
-    private fun resolveEngageComments(screen: Screen, tracker: SessionTracker): ResolveResult {
+    private suspend fun resolveEngageComments(
+        screen: Screen,
+        tracker: SessionTracker,
+        screenshotB64: String?,
+    ): ResolveResult {
         if (tracker.commentLikesThisReel >= tracker.commentLikesPerReel) {
             return ResolveResult(
                 StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
             )
         }
+        val dm = service.resources.displayMetrics
+        val w = dm.widthPixels
+        val h = dm.heightPixels
+        val sheetMinY = (h * 0.55f).toInt()
         val hearts = screen.elements.filter { e ->
-            e.clickable && (
-                e.text.lowercase().let { t ->
-                    t.contains("like") || t.contains("heart") || t.contains("favorite")
-                } || (e.w in 1..140 && e.h in 1..140 && e.x > (screen.elements.maxOfOrNull { it.x + it.w } ?: 0) * 0.7)
-                )
+            if (!e.clickable || e.w <= 0 || e.h <= 0) return@filter false
+            val cy = e.y + e.h / 2
+            if (cy < sheetMinY) return@filter false
+            e.text.lowercase().let { t -> t.contains("like") || t.contains("heart") } ||
+                (e.w <= 120 && e.h <= 120 && e.x + e.w / 2 > w * 0.72f)
         }.sortedBy { it.y }
-        val idx = tracker.commentLikesThisReel.coerceAtMost((hearts.size - 1).coerceAtLeast(0))
+        val row = tracker.commentLikesThisReel
         if (hearts.isNotEmpty()) {
+            val pick = hearts[row.coerceAtMost(hearts.lastIndex)]
             return ResolveResult(
-                StepResponse(
-                    action = "like_comment",
-                    params = mapOf("target_id" to JsonPrimitive(hearts[idx].id)),
-                ),
+                StepResponse(action = "like_comment", params = mapOf("target_id" to JsonPrimitive(pick.id))),
             )
         }
         memoryStore.lookup("like_comment")?.let { (x, y) ->
@@ -152,14 +154,64 @@ class IntentResolver(
                 StepResponse(action = "like_comment", params = mapOf("x" to JsonPrimitive(x), "y" to JsonPrimitive(y))),
             )
         }
-        return ResolveResult(
-            StepResponse(
-                action = "wait",
-                params = mapOf("ms" to JsonPrimitive(400)),
-                needsScreenshot = true,
-                reason = "engage_comments needs vision",
-            ),
-            needsScreenshot = true,
+        return visionGround(
+            anchor = "comment_heart",
+            screen = screen,
+            screenState = ScreenState(screenType = "comments_sheet"),
+            rowIndex = row,
+            screenshotB64 = screenshotB64,
+            fallbackAction = "like_comment",
         )
+    }
+
+    private suspend fun visionGround(
+        anchor: String,
+        screen: Screen,
+        screenState: ScreenState,
+        rowIndex: Int,
+        screenshotB64: String?,
+        fallbackAction: String,
+    ): ResolveResult {
+        val shot = screenshotB64?.takeIf { it.isNotBlank() }
+            ?: screen.screenshotB64?.takeIf { it.isNotBlank() }
+        if (shot == null) {
+            return ResolveResult(
+                StepResponse(action = "wait", params = mapOf("ms" to JsonPrimitive(300)), reason = "$anchor needs screenshot"),
+                needsScreenshot = true,
+            )
+        }
+        val dm = service.resources.displayMetrics
+        return runCatching {
+            val ground = brain.ground(
+                GroundRequest(
+                    anchor = anchor,
+                    screenshotB64 = shot,
+                    screenWidth = dm.widthPixels,
+                    screenHeight = dm.heightPixels,
+                    screenType = screenState.screenType,
+                    elements = screen.elements,
+                    rowIndex = rowIndex,
+                ),
+            )
+            if (ground.needsScreenshot || ground.params.isEmpty()) {
+                ResolveResult(
+                    StepResponse(action = "wait", params = mapOf("ms" to JsonPrimitive(400)), reason = ground.reason),
+                    needsScreenshot = true,
+                )
+            } else {
+                ResolveResult(
+                    StepResponse(
+                        action = ground.action.ifBlank { fallbackAction },
+                        params = ground.params,
+                        reason = "vision ground: ${ground.reason}",
+                    ),
+                )
+            }
+        }.getOrElse {
+            ResolveResult(
+                StepResponse(action = "wait", params = mapOf("ms" to JsonPrimitive(500)), reason = "ground failed: ${it.message}"),
+                needsScreenshot = true,
+            )
+        }
     }
 }

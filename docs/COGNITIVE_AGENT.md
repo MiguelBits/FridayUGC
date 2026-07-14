@@ -59,3 +59,12 @@ See `brain/app/agent/intents.py` and `shared/action_protocol.md`.
 ## Learning loop
 
 Verified steps feed `DeviceMemoryStore` (phone) and `/learning/trajectory` (brain). Successful tap targets for `nav_reels`, `comments_icon`, and `like_comment` are reused before requesting vision.
+
+## Vision grounding (`POST /agent/ground`)
+
+When accessibility and device memory cannot bind a tap, the phone sends a **fresh screenshot**
+to the brain. **Gemma 3 vision** (local vLLM — no OpenAI) returns pixel coordinates.
+
+Binding order: **a11y element → device memory → `/agent/ground`**.
+
+Env: `FRIDAY_VISION_ALWAYS_INSTAGRAM=true`, `FRIDAY_GROUNDING_ENABLED=true`.

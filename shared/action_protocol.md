@@ -120,3 +120,9 @@ These are called when Friday needs to *create* content, not drive the UI:
 - `POST /voice/reply` → returns a short spoken reply for Friday's TTS.
 
 See `brain/app/ugc/schemas.py` for exact request/response shapes.
+
+## 6. Vision grounding (Gemma 3, local)
+
+`POST /agent/ground` — phone sends screenshot + anchor; brain returns tap coordinates.
+Used when accessibility tree and device memory cannot bind icon-only Instagram UI.
+No OpenAI key required — uses `FRIDAY_VISION_MODEL` (default `google/gemma-3-12b-it`) on vLLM.

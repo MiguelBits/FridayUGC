@@ -17,9 +17,40 @@ from .prompt import (
     detect_loop,
     fallback_step_data,
     goal_wants_comment_likes,
+    goal_wants_instagram,
+    on_instagram,
     parse_step_json,
     response_from_json,
 )
+
+INSTAGRAM_UI_SCREENS = frozenset({
+    "reels_viewer", "comments_sheet", "home_feed", "unknown", "story_viewer",
+})
+
+
+def _instagram_needs_screenshot(req: StepRequest) -> bool:
+    """Vision-by-default for Reels/comment-likes work — not generic feed scroll tests."""
+    settings = get_settings()
+    if not settings.vision_always_instagram or not settings.vision_enabled:
+        return False
+    if (req.screen.screenshot_b64 or "").strip():
+        return False
+    if not on_instagram(req.screen.app or "") and not goal_wants_instagram(req.goal):
+        return False
+    state = resolve_state(req)
+    g = req.goal.lower()
+    if state.screen_type in {"reels_viewer", "comments_sheet"}:
+        return True
+    if goal_wants_comment_likes(req.goal) or "reel" in g:
+        return state.screen_type in INSTAGRAM_UI_SCREENS
+    return False
+
+
+def _instagram_ui_step(req: StepRequest) -> bool:
+    if not on_instagram(req.screen.app or "") and not goal_wants_instagram(req.goal):
+        return False
+    state = resolve_state(req)
+    return state.screen_type in INSTAGRAM_UI_SCREENS
 
 
 def _should_use_playbook(req: StepRequest) -> bool:
@@ -38,13 +69,13 @@ def _is_ambiguous_step(req: StepRequest) -> bool:
         return False
     if (req.screen.screenshot_b64 or "").strip():
         return False
+    if settings.vision_always_instagram and _instagram_needs_screenshot(req):
+        return True
     if goal_wants_comment_likes(req.goal):
         return True
     lr = req.last_result
     if lr and (not lr.ok or lr.verified in {"failed", "unverified"}):
         return True
-    from .prompt import on_instagram
-
     if not on_instagram(req.screen.app or ""):
         return False
     n = len(req.screen.elements)
@@ -174,7 +205,12 @@ async def decide_legacy(req: StepRequest, persona_key: str = "lorena") -> StepRe
     user = build_step_user_prompt(req)
     shot = (req.screen.screenshot_b64 or "").strip()
     use_vision = bool(shot) and settings.vision_enabled
-    llm = get_vision_llm() if use_vision else get_llm()
+    if use_vision and _instagram_ui_step(req):
+        llm = get_vision_llm()
+    elif use_vision:
+        llm = get_vision_llm()
+    else:
+        llm = get_llm()
     images = [shot] if use_vision else []
 
     started = time.perf_counter()

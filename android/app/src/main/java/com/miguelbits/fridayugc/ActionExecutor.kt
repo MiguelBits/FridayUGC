@@ -109,12 +109,20 @@ class ActionExecutor(
         }
 
         if (tab == "reels") {
-            val pager = GestureHelper.swipeFeedPager(service, "left")
-            if (pager) {
-                delay(2200)
-                return Result(true)
-            }
             openReelsViaIntent()?.let { return it }
+            val dm = service.resources.displayMetrics
+            val screen = ScreenReader.read(
+                r,
+                service.packageName.orEmpty(),
+                "",
+            )
+            if (!CarouselDetector.hasCarouselPost(screen, dm.widthPixels, dm.heightPixels)) {
+                val pager = GestureHelper.swipeFeedPager(service, "left")
+                if (pager) {
+                    delay(2200)
+                    return Result(true)
+                }
+            }
         }
 
         return Result(false, "tab not found: $tab (no a11y label or device memory)")
@@ -205,7 +213,17 @@ class ActionExecutor(
     }
 
     private suspend fun swipe(resp: StepResponse): Result {
-        val ok = GestureHelper.swipeDirection(service, strParam(resp, "direction") ?: "up")
+        val dir = strParam(resp, "direction") ?: "up"
+        val zone = strParam(resp, "zone")
+        val reason = resp.reason
+        val ok = when {
+            zone == "reels_rail" || (dir == "up" && reason.contains("next_reel")) ->
+                GestureHelper.swipeReelsNext(service)
+            dir == "left" || dir == "right" ->
+                GestureHelper.swipeFeedPager(service, dir)
+            else ->
+                GestureHelper.swipeDirection(service, dir)
+        }
         delay(350)
         return Result(ok, if (ok) null else "swipe gesture failed")
     }

@@ -51,19 +51,31 @@ object GestureHelper {
     }
 
     /**
-     * Horizontal pager swipe in the feed content band (avoids story tray + bottom nav).
-     * On Instagram home, swipe left opens the Reels tab.
+     * Vertical swipe on the Reels right rail — avoids carousel / post media in the center.
+     */
+    suspend fun swipeReelsNext(service: AccessibilityService): Boolean {
+        val dm = service.resources.displayMetrics
+        val x = dm.widthPixels * (0.90f + Random.nextFloat() * 0.04f)
+        val y1 = dm.heightPixels * (0.68f + Random.nextFloat() * 0.06f)
+        val y2 = dm.heightPixels * (0.25f + Random.nextFloat() * 0.06f)
+        return swipe(service, x, y1, x, y2, Random.nextLong(320, 480))
+    }
+
+    /**
+     * Horizontal pager swipe along the **left gutter** (avoids carousel post media in center).
+     * On Instagram home, swipe left opens the Reels tab — prefer bottom-nav when carousel visible.
      */
     suspend fun swipeFeedPager(service: AccessibilityService, direction: String): Boolean {
         val dm = service.resources.displayMetrics
-        val y = dm.heightPixels * (0.52f + Random.nextFloat() * 0.08f)
-        val margin = dm.widthPixels * (0.08f + Random.nextFloat() * 0.04f)
-        val left = margin
-        val right = dm.widthPixels - margin
+        val y = dm.heightPixels * (0.45f + Random.nextFloat() * 0.12f)
+        val leftGutter = dm.widthPixels * (0.03f + Random.nextFloat() * 0.04f)
+        val leftReach = dm.widthPixels * (0.32f + Random.nextFloat() * 0.08f)
+        val rightReach = dm.widthPixels * (0.68f + Random.nextFloat() * 0.08f)
+        val rightGutter = dm.widthPixels * (0.97f - Random.nextFloat() * 0.04f)
         val duration = Random.nextLong(360, 520)
         return when (direction) {
-            "left" -> swipe(service, right, y, left, y, duration)
-            "right" -> swipe(service, left, y, right, y, duration)
+            "left" -> swipe(service, leftReach, y, leftGutter, y, duration)
+            "right" -> swipe(service, rightReach, y, rightGutter, y, duration)
             else -> false
         }
     }
