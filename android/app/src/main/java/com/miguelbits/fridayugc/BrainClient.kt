@@ -19,6 +19,8 @@ import com.miguelbits.fridayugc.model.EvalReport
 import com.miguelbits.fridayugc.model.LearningMetrics
 import com.miguelbits.fridayugc.model.TrajectoryBatchRequest
 import com.miguelbits.fridayugc.model.TrajectoryBatchResponse
+import com.miguelbits.fridayugc.model.GroundRequest
+import com.miguelbits.fridayugc.model.GroundResponse
 import com.miguelbits.fridayugc.model.StepRequest
 import com.miguelbits.fridayugc.model.StepResponse
 import com.miguelbits.fridayugc.model.CaptionRequest
@@ -66,6 +68,20 @@ class BrainClient(
             val text = resp.body?.string().orEmpty()
             check(resp.isSuccessful) { "Brain error ${resp.code}: $text" }
             json.decodeFromString(StepResponse.serializer(), text)
+        }
+    }
+
+    suspend fun ground(req: GroundRequest): GroundResponse = withContext(Dispatchers.IO) {
+        val body = json.encodeToString(GroundRequest.serializer(), req).toRequestBody(jsonMedia)
+        val request = Request.Builder()
+            .url("$baseUrl/agent/ground")
+            .addHeader("Authorization", "Bearer $apiToken")
+            .post(body)
+            .build()
+        http.newCall(request).execute().use { resp ->
+            val text = resp.body?.string().orEmpty()
+            check(resp.isSuccessful) { "Ground error ${resp.code}: $text" }
+            json.decodeFromString(GroundResponse.serializer(), text)
         }
     }
 

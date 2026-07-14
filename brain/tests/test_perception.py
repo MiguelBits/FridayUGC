@@ -23,7 +23,7 @@ def test_screen_state_block_in_prompt():
     assert "SCREEN_STATE" in prompt
     assert "screen_type=home_feed" in prompt
     assert "NEVER" in prompt
-    assert "General mobile operator" in prompt
+    assert "Cognitive mobile operator" in prompt
 
 
 def test_resolve_state_prefers_phone_classifier():

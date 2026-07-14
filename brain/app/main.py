@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import Response
 
-from .agent.actions import StepRequest, StepResponse
+from .agent.actions import GroundRequest, GroundResponse, StepRequest, StepResponse
+from .agent.grounding import ground_target
 from .agent.router import decide
 from .config import get_settings
 from .gallery.curator import curate, reply_to_comment
@@ -157,6 +158,18 @@ async def agent_step(req: StepRequest) -> StepResponse:
                 detail=f"LLM agent failed: {exc}",
             ) from exc
         raise
+
+
+@app.post("/agent/ground", response_model=GroundResponse, dependencies=[Depends(require_token)])
+async def agent_ground(req: GroundRequest) -> GroundResponse:
+    """Gemma 3 vision grounding — find tap target on screenshot (no OpenAI)."""
+    try:
+        return await ground_target(req)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Grounding failed: {exc}",
+        ) from exc
 
 
 # --- UGC creation ---

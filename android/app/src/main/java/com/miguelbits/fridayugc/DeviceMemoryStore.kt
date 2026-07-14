@@ -63,6 +63,23 @@ class DeviceMemoryStore(context: Context) {
         )
     }
 
+    fun lookup(uiKey: String): Pair<Int, Int>? {
+        val rows = db.rawQuery(
+            "SELECT x, y, success_count, fail_count FROM device_memory WHERE ui_key = ? ORDER BY success_count DESC LIMIT 1",
+            arrayOf(uiKey),
+        )
+        rows.use {
+            if (!it.moveToFirst()) return null
+            val x = it.getInt(0)
+            val y = it.getInt(1)
+            val success = it.getInt(2)
+            val fail = it.getInt(3)
+            if (success < 1 || fail > success * 2) return null
+            if (x <= 0 || y <= 0) return null
+            return x to y
+        }
+    }
+
     fun topEntries(limit: Int = 32): List<DeviceMemoryEntry> {
         val rows = db.rawQuery(
             "SELECT * FROM device_memory ORDER BY success_count DESC LIMIT ?",

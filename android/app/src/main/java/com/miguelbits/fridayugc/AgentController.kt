@@ -80,25 +80,6 @@ class AgentController(
         delay(5000)
     }
 
-    private suspend fun ensureReelsOpen(svc: FridayAccessibilityService, forceNavigate: Boolean = false) {
-        val screen = svc.readScreen()
-        val state = ScreenClassifier.classify(screen, svc.currentActivityClass())
-        if (!forceNavigate && state.screenType == "reels_viewer" && state.confidence >= 0.55f) return
-        onSay("Opening Reels tab…")
-        repeat(2) { attempt ->
-            val nav = svc.executor.execute(
-                StepResponse(
-                    action = "navigate",
-                    params = mapOf("tab" to JsonPrimitive("reels")),
-                ),
-            )
-            if (nav.ok) return@repeat
-            if (attempt == 0) onSay("Reels tab: ${nav.error} — retrying…")
-            delay(2000)
-        }
-        delay(3500)
-    }
-
     suspend fun runGoal(
         goal: String,
         resumeContext: Map<String, JsonElement> = emptyMap(),
@@ -126,11 +107,8 @@ class AgentController(
 
         if (goalWantsInstagram(goal)) ensureInstagramOpen(svc)
 
-        val wantsReels = goal.lowercase().let { g ->
-            g.contains("reel") || g.contains("comment like") || g.contains("comment likes")
-        }
         val wantsCommentLikes = goalWantsCommentLikes(goal)
-        if (wantsReels) ensureReelsOpen(svc, forceNavigate = wantsCommentLikes)
+        if (wantsCommentLikes) tracker.phase = "reels_comment_likes"
 
         if (goalWantsPosting(goal)) {
             val prefs = svc.applicationContext.getSharedPreferences("friday_gallery", android.content.Context.MODE_PRIVATE)
@@ -159,7 +137,10 @@ class AgentController(
         val appCtx = svc.applicationContext
         val deviceId = FridayPreferences.deviceId(appCtx)
         val memoryStore = DeviceMemoryStore(appCtx)
+        svc.executor.attachMemory(memoryStore)
+        val intentResolver = IntentResolver(svc, memoryStore, brain)
         val reporter = VerifiedStepReporter(brain, memoryStore, deviceId, voiceScope)
+        var stepEnteredAt = System.currentTimeMillis()
 
         for (step in 0 until maxSteps) {
             if (shouldStop()) {
@@ -180,13 +161,15 @@ class AgentController(
             val stale = ScreenValidator.isStale(lastFingerprint, fingerprint)
             lastFingerprint = fingerprint
 
-            val wantScreenshot = screenState.needsVision ||
+            val wantScreenshot = wantsIg && (
+                screenState.screenType in instagramVisionScreens ||
+                screenState.needsVision ||
                 wantsCommentLikes ||
                 last?.ok == false ||
                 last?.verified in setOf("failed", "unverified") ||
                 screenState.confidence < 0.55f ||
-                screenState.screenType == "unknown" ||
                 base.elements.size < 12
+            )
             var screen = if (wantScreenshot) {
                 onSay("Sending screenshot to brain…")
                 onProgress(AgentProgress.StepThinking(step, withScreenshot = true))
@@ -195,6 +178,12 @@ class AgentController(
             } else {
                 base
             }
+
+            val dwellMs = (System.currentTimeMillis() - stepEnteredAt).coerceAtMost(60_000)
+            stepEnteredAt = System.currentTimeMillis()
+            val contextWithDwell = tracker.toContext() + mapOf(
+                "dwell_on_screen_ms" to JsonPrimitive(dwellMs),
+            )
 
             val req = StepRequest(
                 sessionId = sessionId,
@@ -207,13 +196,13 @@ class AgentController(
                 deviceId = deviceId,
                 screenFingerprint = fingerprint,
                 screenState = screenState,
-                sessionContext = tracker.toContext(),
+                sessionContext = contextWithDwell,
             )
 
             onSay("Thinking… step ${step + 1}")
             onProgress(AgentProgress.StepThinking(step))
 
-            var resp: StepResponse = runCatching { brain.step(req) }
+            val resp: StepResponse = runCatching { brain.step(req) }
                 .getOrElse {
                     onSay("Brain unreachable: ${it.message}")
                     onProgress(AgentProgress.SessionEnded(ok = false, reason = "Brain unreachable"))
@@ -221,12 +210,14 @@ class AgentController(
                     return false
                 }
 
-            if (resp.needsScreenshot && screen.screenshotB64.isNullOrBlank()) {
+            var finalResp = resp
+
+            if (finalResp.needsScreenshot && screen.screenshotB64.isNullOrBlank()) {
                 onSay("Brain requested screenshot — recapturing…")
                 val b64 = ScreenCapture.captureBase64(svc)
                 if (b64 != null) {
                     screen = base.copy(screenshotB64 = b64)
-                    resp = runCatching { brain.step(req.copy(screen = screen)) }.getOrElse {
+                    finalResp = runCatching { brain.step(req.copy(screen = screen)) }.getOrElse {
                         onSay("Brain unreachable on retry: ${it.message}")
                         return false
                     }
@@ -234,8 +225,8 @@ class AgentController(
             }
 
             val outcome = handleStep(
-                svc, goal, step, resp, screen, history, last, wantsIg, wantsCommentLikes, stale,
-                reporter, fingerprint,
+                svc, goal, step, finalResp, screen, history, last, wantsIg, wantsCommentLikes, stale,
+                reporter, fingerprint, intentResolver, memoryStore,
             )
             last = outcome.lastResult
             if (outcome.terminal != null) {
@@ -263,6 +254,8 @@ class AgentController(
         stale: Boolean,
         reporter: VerifiedStepReporter,
         beforeFingerprint: String,
+        intentResolver: IntentResolver,
+        memoryStore: DeviceMemoryStore,
     ): StepOutcome {
         onSay("Step ${step + 1}: ${resp.action} (${screen.app.ifBlank { "unknown" }})")
         onProgress(
@@ -354,6 +347,17 @@ class AgentController(
 
         val x = (resp.params["x"] as? JsonPrimitive)?.content?.toIntOrNull()
         val y = (resp.params["y"] as? JsonPrimitive)?.content?.toIntOrNull()
+        if (x != null && y != null && wantsCommentLikes) {
+            val dm = svc.resources.displayMetrics
+            if (CommentLikesRoutine.isReelLikeZone(x, y, dm.widthPixels, dm.heightPixels) &&
+                tracker.commentLikesPhase != CommentLikesRoutine.PHASE_ON_REELS
+            ) {
+                onSay("Blocked reel-like zone tap during comments.")
+                history.add("tap(reel-like-blocked)")
+                return StepOutcome(null, LastResult(action = "tap", ok = false, error = "reel like zone"))
+            }
+        }
+
         if (x != null && y != null) {
             ScreenValidator.validateTap(screen, x, y)?.let { err ->
                 onSay("Invalid tap: $err")
@@ -370,26 +374,62 @@ class AgentController(
             return StepOutcome(null, LastResult(action = "wait", ok = true, verified = "unknown"))
         }
 
+        var toExecute = resp
+        if (resp.action == "intent") {
+            var shot = screen.screenshotB64
+            var resolved = intentResolver.resolve(
+                resp, screen, ScreenClassifier.classify(screen, svc.currentActivityClass()), tracker, shot,
+            )
+            if (resolved.needsScreenshot) {
+                onSay("Intent needs vision — grounding with Gemma…")
+                val b64 = ScreenCapture.captureBase64(svc)
+                if (b64 != null) {
+                    shot = b64
+                    resolved = intentResolver.resolve(
+                        resp, screen.copy(screenshotB64 = b64),
+                        ScreenClassifier.classify(screen, svc.currentActivityClass()), tracker, b64,
+                    )
+                }
+            }
+            toExecute = resolved.response.copy(
+                say = resp.say ?: resolved.response.say,
+                reason = resp.reason.ifBlank { resolved.response.reason },
+            )
+            if (resolved.needsScreenshot) {
+                onSay("Grounding failed — need clearer screenshot.")
+                history.add("intent(ground-failed)")
+                return StepOutcome(null, LastResult(action = "intent", ok = false, error = "grounding_failed"))
+            }
+            onSay("Intent → ${toExecute.action}")
+        }
+
         val beforeScreen = screen
-        val result = svc.executor.execute(resp)
-        var finalAction = resp.action
+        val result = svc.executor.execute(toExecute)
+        var finalAction = toExecute.action
         var finalOk = result.ok
         var finalError = result.error
 
-        if (!finalOk && resp.action == "navigate" &&
-            (resp.params["tab"] as? JsonPrimitive)?.content?.lowercase() == "reels"
+        if (!finalOk && toExecute.action == "navigate" &&
+            (toExecute.params["tab"] as? JsonPrimitive)?.content?.lowercase() == "reels"
         ) {
-            onSay("Navigate reels failed — retrying…")
-            val retry = svc.executor.execute(
-                StepResponse(action = "navigate", params = mapOf("tab" to JsonPrimitive("reels"))),
+            val dm = svc.resources.displayMetrics
+            val carousel = CarouselDetector.hasCarouselPost(
+                beforeScreen,
+                dm.widthPixels,
+                dm.heightPixels,
             )
+            if (carousel) {
+                onSay("Carousel on feed — skipping horizontal swipe…")
+            } else {
+                onSay("Navigate reels failed — retrying gutter pager swipe…")
+                finalOk = GestureHelper.swipeFeedPager(svc, "left")
+                finalError = if (finalOk) null else "reels navigation failed"
+            }
             finalAction = "navigate"
-            finalOk = retry.ok
-            finalError = retry.error
         }
 
-        if (!finalOk && resp.action == "tap" && goalWantsInstagram(goal)) {
-            onSay("Tap failed — swiping instead…")
+        if (!finalOk && toExecute.action == "tap" && goalWantsInstagram(goal) && !wantsCommentLikes) {
+            onSay("Tap failed — trying next reel…")
             val swipe = svc.executor.execute(
                 StepResponse(action = "swipe", params = mapOf("direction" to JsonPrimitive("up"))),
             )
@@ -401,7 +441,7 @@ class AgentController(
         history.add(finalAction)
         onProgress(AgentProgress.StepExecuted(step, finalAction, ok = finalOk, error = finalError))
         if (finalOk) {
-            tracker.record(finalAction, resp.params)
+            tracker.record(finalAction, toExecute.params)
             consecutiveFailures = 0
             emitBudget()
         } else {
@@ -409,10 +449,41 @@ class AgentController(
             onSay("$finalAction failed: $finalError")
         }
 
-        if (resp.action == "open_app") delay(4000)
+        if (toExecute.action == "open_app") delay(4000)
         delay(humanDelayMs(finalAction))
 
         val afterScreen = svc.readScreen()
+        if (finalOk && wantsCommentLikes) {
+            val afterState = ScreenClassifier.classify(afterScreen, svc.currentActivityClass())
+            when (finalAction) {
+                "tap" -> {
+                    if (toExecute.reason.contains("open_comments") || toExecute.reason.contains("vision ground")) {
+                        when {
+                            afterState.screenType == "comments_sheet" -> tracker.commentsSheetOpen = true
+                            ReelsTargetFinder.isAudioBrowser(afterScreen) -> {
+                                onSay("Opened audio by mistake — going back.")
+                                svc.executor.execute(
+                                    StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
+                                )
+                                tracker.commentsSheetOpen = false
+                            }
+                        }
+                    } else if (afterState.screenType == "comments_sheet") {
+                        tracker.commentsSheetOpen = true
+                    }
+                }
+                "like_comment" -> {
+                    if (afterState.screenType == "comments_sheet") {
+                        tracker.commentsSheetOpen = true
+                    }
+                }
+                "press" -> tracker.commentsSheetOpen = false
+                "navigate" -> {
+                    val tab = (toExecute.params["tab"] as? JsonPrimitive)?.content?.lowercase()
+                    if (tab == "reels") tracker.reelsTabOpened = true
+                }
+            }
+        }
         val afterFingerprint = ScreenValidator.fingerprint(afterScreen)
         val verification = OutcomeVerifier.verify(
             finalAction, finalOk, beforeScreen, afterScreen, beforeFingerprint, afterFingerprint,
@@ -422,7 +493,7 @@ class AgentController(
             step = step,
             goal = goal,
             action = finalAction,
-            params = resp.params,
+            params = toExecute.params,
             executorOk = finalOk,
             verification = verification,
             before = beforeScreen,
@@ -443,6 +514,10 @@ class AgentController(
             ),
         )
     }
+
+    private val instagramVisionScreens = setOf(
+        "reels_viewer", "comments_sheet", "home_feed", "unknown", "story_viewer",
+    )
 
     private fun humanDelayMs(action: String): Long = when (action) {
         "like", "like_story", "like_comment", "comment", "post", "follow", "dm", "save" -> Random.nextLong(2500, 6500)

@@ -12,10 +12,17 @@ import com.miguelbits.fridayugc.model.StepResponse
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonPrimitive
 
-/** Executes all UGC operator actions on Instagram via Accessibility. */
-class ActionExecutor(private val service: AccessibilityService) {
+/** Executes UGC operator actions — binds motor at execution time via a11y + device memory. */
+class ActionExecutor(
+    private val service: AccessibilityService,
+    private var memoryStore: DeviceMemoryStore? = null,
+) {
 
     data class Result(val ok: Boolean, val error: String? = null)
+
+    fun attachMemory(store: DeviceMemoryStore) {
+        memoryStore = store
+    }
 
     private fun root(): AccessibilityNodeInfo? = service.rootInActiveWindow
 
@@ -54,7 +61,11 @@ class ActionExecutor(private val service: AccessibilityService) {
             val rect = Rect()
             clickable.getBoundsInScreen(rect)
             if (!rect.isEmpty) {
-                val ok = GestureHelper.tap(service, rect.centerX(), rect.centerY())
+                val ok = GestureHelper.tapHuman(
+                    service,
+                    rect.centerX() + kotlin.random.Random.nextInt(-6, 7),
+                    rect.centerY() + kotlin.random.Random.nextInt(-6, 7),
+                )
                 delay(300)
                 return Result(ok, if (ok) null else "gesture tap failed")
             }
@@ -62,7 +73,7 @@ class ActionExecutor(private val service: AccessibilityService) {
         }
         val x = intParam(resp, "x"); val y = intParam(resp, "y")
         return if (x != null && y != null) {
-            val ok = GestureHelper.tap(service, x, y)
+            val ok = GestureHelper.tapHuman(service, x, y)
             delay(200)
             Result(ok, if (ok) null else "gesture tap failed")
         } else Result(false, "tap needs target_id or x,y")
@@ -73,9 +84,12 @@ class ActionExecutor(private val service: AccessibilityService) {
 
     private suspend fun navigate(resp: StepResponse): Result {
         val tab = strParam(resp, "tab")?.lowercase() ?: return Result(false, "navigate needs tab")
+        val r = root()
+        val screenH = service.resources.displayMetrics.heightPixels
+
         val keywords = when (tab) {
-            "reels" -> arrayOf("reels", "reel", "clips", "vídeos", "videos", "id:clips", "id:reel")
             "home" -> arrayOf("home", "feed", "id:feed", "id:home")
+            "reels" -> arrayOf("reels", "clips", "vídeos", "videos", "id:clips", "id:reel", "id:reels")
             "search" -> arrayOf("search", "explore", "id:search")
             "profile" -> arrayOf("profile", "id:profile")
             "inbox" -> arrayOf("messages", "inbox", "direct", "id:direct")
@@ -83,20 +97,37 @@ class ActionExecutor(private val service: AccessibilityService) {
             "create" -> arrayOf("create", "new post", "camera", "id:creation")
             else -> arrayOf(tab)
         }
-        val r = root()
-        val screenH = service.resources.displayMetrics.heightPixels
-        val idx = ScreenReader.indexByText(r, *keywords)
-            ?: ScreenReader.indexBottomNavTab(r, tab, screenH)
-        if (idx != null) return tapIndex(idx)
+
+        ScreenReader.indexBottomNavTab(r, tab, screenH)?.let { return tapIndex(it) }
+        ScreenReader.indexByTextInBottomNav(r, screenH, *keywords)?.let { return tapIndex(it) }
+        ScreenReader.indexByText(r, *keywords)?.let { return tapIndex(it) }
+
+        memoryStore?.lookup("nav_$tab")?.let { (x, y) ->
+            val ok = GestureHelper.tapHuman(service, x, y)
+            delay(1200)
+            return Result(ok, if (ok) null else "memory tap failed for nav_$tab")
+        }
 
         if (tab == "reels") {
             openReelsViaIntent()?.let { return it }
-            return tapBottomNavCoordinate("reels")
+            val dm = service.resources.displayMetrics
+            val screen = ScreenReader.read(
+                r,
+                service.packageName.orEmpty(),
+                "",
+            )
+            if (!CarouselDetector.hasCarouselPost(screen, dm.widthPixels, dm.heightPixels)) {
+                val pager = GestureHelper.swipeFeedPager(service, "left")
+                if (pager) {
+                    delay(2200)
+                    return Result(true)
+                }
+            }
         }
-        return Result(false, "tab not found: $tab")
+
+        return Result(false, "tab not found: $tab (no a11y label or device memory)")
     }
 
-    /** Fallback when Reels tab has no accessible label (common on Instagram). */
     private fun openReelsViaIntent(): Result? {
         val pkg = resolveInstagramPackage() ?: return null
         for (uri in listOf("https://www.instagram.com/reels/", "instagram://reels")) {
@@ -112,21 +143,6 @@ class ActionExecutor(private val service: AccessibilityService) {
             }
         }
         return null
-    }
-
-    private fun tapBottomNavCoordinate(tab: String): Result {
-        val dm = service.resources.displayMetrics
-        val y = (dm.heightPixels * 0.93f).toInt()
-        val x = when (tab) {
-            "home" -> dm.widthPixels * 0.10f
-            "reels" -> dm.widthPixels * 0.30f
-            "create" -> dm.widthPixels * 0.50f
-            "search" -> dm.widthPixels * 0.70f
-            "profile" -> dm.widthPixels * 0.90f
-            else -> return Result(false, "no coordinate map for $tab")
-        }.toInt()
-        tapAt(x, y)
-        return Result(true)
     }
 
     private suspend fun comment(resp: StepResponse): Result {
@@ -197,7 +213,17 @@ class ActionExecutor(private val service: AccessibilityService) {
     }
 
     private suspend fun swipe(resp: StepResponse): Result {
-        val ok = GestureHelper.swipeDirection(service, strParam(resp, "direction") ?: "up")
+        val dir = strParam(resp, "direction") ?: "up"
+        val zone = strParam(resp, "zone")
+        val reason = resp.reason
+        val ok = when {
+            zone == "reels_rail" || (dir == "up" && reason.contains("next_reel")) ->
+                GestureHelper.swipeReelsNext(service)
+            dir == "left" || dir == "right" ->
+                GestureHelper.swipeFeedPager(service, dir)
+            else ->
+                GestureHelper.swipeDirection(service, dir)
+        }
         delay(350)
         return Result(ok, if (ok) null else "swipe gesture failed")
     }
@@ -249,7 +275,6 @@ class ActionExecutor(private val service: AccessibilityService) {
         }
     }
 
-    /** Find installed Instagram (full or Lite). Requires <queries> in AndroidManifest on API 30+. */
     private fun resolveInstagramPackage(): String? {
         val pm = service.packageManager
         val preferred = listOf("com.instagram.android", "com.instagram.lite")
@@ -264,28 +289,6 @@ class ActionExecutor(private val service: AccessibilityService) {
             }
         }
         return null
-    }
-
-    private fun tapAt(x: Int, y: Int) {
-        val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
-        val stroke = GestureDescription.StrokeDescription(path, 0, 60)
-        service.dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
-    }
-
-    private fun swipeDirection(dir: String) {
-        val dm = service.resources.displayMetrics
-        val cx = dm.widthPixels / 2f
-        val cy = dm.heightPixels / 2f
-        val d = dm.heightPixels * 0.35f
-        val path = Path()
-        when (dir) {
-            "up" -> { path.moveTo(cx, cy + d); path.lineTo(cx, cy - d) }
-            "down" -> { path.moveTo(cx, cy - d); path.lineTo(cx, cy + d) }
-            "left" -> { path.moveTo(cx + d, cy); path.lineTo(cx - d, cy) }
-            else -> { path.moveTo(cx - d, cy); path.lineTo(cx + d, cy) }
-        }
-        val stroke = GestureDescription.StrokeDescription(path, 0, 350)
-        service.dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
     }
 }
 

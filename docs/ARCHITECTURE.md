@@ -41,11 +41,15 @@ flowchart LR
 
 1. `AgentController` asks `FridayAccessibilityService` for the current screen.
 2. `ScreenReader` flattens the accessibility tree into a compact indexed element list.
-3. The phone POSTs `StepRequest` to `/agent/step` with the goal, screen, and recent history.
-4. The brain builds a prompt (Lorena system prompt + screen + action spec) and asks Gemma 4 for
-   **one action** as JSON.
-5. The brain enforces server-side safety (real-account mutations → `approval_required=true`).
-6. The phone executes the action via `ActionExecutor`, waits a human-like delay, and repeats.
+3. `ScreenClassifier` produces structured `ScreenState` (screen type, confidence, vision flag).
+4. The phone POSTs `StepRequest` to `/agent/step` with goal, screen, dwell time, and history.
+5. The brain builds a prompt (persona + screen state + **intent vocabulary**) and asks Gemma for
+   **one action or intent** as JSON.
+6. If the response is an `intent`, `IntentResolver` translates it to motor actions using fresh UI + device memory.
+7. `GestureHelper` executes human-like gestures; `OutcomeVerifier` checks the UI actually changed.
+8. Verified outcomes sync to `DeviceMemoryStore` and the brain learning API.
+
+See `docs/COGNITIVE_AGENT.md` for the full two-level cognition model.
 
 ## Content lifecycle (creation, not UI driving)
 

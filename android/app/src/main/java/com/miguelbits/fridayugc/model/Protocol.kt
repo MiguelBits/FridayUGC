@@ -178,6 +178,26 @@ data class StepResponse(
 )
 
 @Serializable
+data class GroundRequest(
+    val anchor: String,
+    @SerialName("screenshot_b64") val screenshotB64: String,
+    @SerialName("screen_width") val screenWidth: Int = 0,
+    @SerialName("screen_height") val screenHeight: Int = 0,
+    @SerialName("screen_type") val screenType: String = "",
+    val elements: List<ScreenElement> = emptyList(),
+    @SerialName("row_index") val rowIndex: Int = 0,
+)
+
+@Serializable
+data class GroundResponse(
+    val action: String = "tap",
+    val params: Map<String, JsonElement> = emptyMap(),
+    val confidence: Float = 0f,
+    val reason: String = "",
+    @SerialName("needs_screenshot") val needsScreenshot: Boolean = false,
+)
+
+@Serializable
 data class IncomingMessage(
     @SerialName("message_id") val messageId: String,
     @SerialName("thread_id") val threadId: String = "",

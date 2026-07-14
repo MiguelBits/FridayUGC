@@ -80,6 +80,7 @@ where the accessibility tree is weak). Keep it null by default to save bandwidth
 | `open_app` | `{ "package": "com.instagram.android" }` | launch intent |
 | `navigate` | `{ "tab": "reels\|home\|search\|profile\|inbox\|activity\|create" }` | tap bottom tab |
 | `wait` | `{ "ms": int }` | pause (default 800–2500 for human pacing) |
+| `intent` | `{ "name": str, "dwell_ms": int?, "direction": str? }` | high-level goal; phone resolves to motor at execution time |
 | `post` | `{ "media_path": str, "caption": str }` | run IG post flow (approval-gated) |
 | `comment` | `{ "target_id": int, "text": str }` | open comment box + type + send (approval-gated) |
 | `dm` | `{ "handle": str, "text": str }` | open DM + send (approval-gated) |
@@ -119,3 +120,9 @@ These are called when Friday needs to *create* content, not drive the UI:
 - `POST /voice/reply` → returns a short spoken reply for Friday's TTS.
 
 See `brain/app/ugc/schemas.py` for exact request/response shapes.
+
+## 6. Vision grounding (Gemma 3, local)
+
+`POST /agent/ground` — phone sends screenshot + anchor; brain returns tap coordinates.
+Used when accessibility tree and device memory cannot bind icon-only Instagram UI.
+No OpenAI key required — uses `FRIDAY_VISION_MODEL` (default `google/gemma-3-12b-it`) on vLLM.

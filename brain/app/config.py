@@ -124,6 +124,8 @@ class Settings(BaseSettings):
     learning_db_path: str = ""
     vision_on_ambiguous: bool = True
     vision_ambiguous_element_threshold: int = 12
+    vision_always_instagram: bool = True
+    grounding_enabled: bool = True
 
     # --- RAG / gallery retrieval (local SQLite index, Azure-ready embeddings) ---
     rag_enabled: bool = True

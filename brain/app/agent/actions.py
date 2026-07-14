@@ -12,6 +12,7 @@ ActionName = Literal[
     "press",
     "open_app",
     "wait",
+    "intent",
     "navigate",
     "post",
     "comment",
@@ -98,3 +99,23 @@ class StepResponse(BaseModel):
     done: bool = False
     needs_screenshot: bool = False
     approval_required: bool = False
+
+
+class GroundRequest(BaseModel):
+    """Phone → brain: find tap target on screenshot (Gemma 3 vision, local)."""
+
+    anchor: str
+    screenshot_b64: str
+    screen_width: int = 0
+    screen_height: int = 0
+    screen_type: str = ""
+    elements: list[ScreenElement] = Field(default_factory=list)
+    row_index: int = 0
+
+
+class GroundResponse(BaseModel):
+    action: str = "tap"
+    params: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = 0.0
+    reason: str = ""
+    needs_screenshot: bool = False

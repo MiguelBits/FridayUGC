@@ -97,6 +97,25 @@ def is_reels_viewer(state: ScreenState) -> bool:
     return state.screen_type == "reels_viewer" and state.confidence >= 0.55
 
 
+def on_reels_surface(state: ScreenState, ctx: dict | None = None) -> bool:
+    if is_reels_viewer(state):
+        return True
+    if not ctx:
+        return False
+    try:
+        opened = int(ctx.get("reels_tab_opened", 0))
+    except (TypeError, ValueError):
+        opened = 0
+    if opened != 1:
+        return False
+    # Preflight swipe-left lands on Reels but classifier often still says home_feed.
+    return state.screen_type not in {"story_viewer", "other_app", "launcher"}
+
+
+def is_story_viewer(state: ScreenState) -> bool:
+    return state.screen_type == "story_viewer"
+
+
 def is_home_feed(state: ScreenState) -> bool:
     return state.screen_type == "home_feed"
 
@@ -116,5 +135,47 @@ def screen_state_block(state: ScreenState) -> str:
     )
 
 
+def on_comments_sheet(state: ScreenState, ctx: dict | None = None) -> bool:
+    if state.screen_type == "comments_sheet":
+        return True
+    if not ctx:
+        return False
+    try:
+        opened = int(ctx.get("comments_sheet_open", 0))
+    except (TypeError, ValueError):
+        opened = 0
+    return opened == 1 and state.screen_type not in {"story_viewer", "other_app", "launcher"}
+
+
 def resolve_state(req: StepRequest) -> ScreenState:
-    return classify_screen(req.screen, req.screen_state)
+    state = classify_screen(req.screen, req.screen_state)
+    ctx = req.session_context or {}
+    try:
+        opened = int(ctx.get("reels_tab_opened", 0))
+    except (TypeError, ValueError):
+        opened = 0
+    if opened == 1 and state.screen_type in {"home_feed", "unknown"}:
+        signals = list(state.signals) + ["reels_tab_opened — override to reels_viewer"]
+        return state.model_copy(
+            update={
+                "screen_type": "reels_viewer",
+                "selected_tab": "reels",
+                "confidence": max(state.confidence, 0.78),
+                "signals": signals,
+            }
+        )
+    try:
+        comments_open = int(ctx.get("comments_sheet_open", 0))
+    except (TypeError, ValueError):
+        comments_open = 0
+    if comments_open == 1 and state.screen_type not in {"comments_sheet", "story_viewer", "other_app"}:
+        signals = list(state.signals) + ["comments_sheet_open — override to comments_sheet"]
+        return state.model_copy(
+            update={
+                "screen_type": "comments_sheet",
+                "selected_tab": "reels",
+                "confidence": max(state.confidence, 0.8),
+                "signals": signals,
+            }
+        )
+    return state
