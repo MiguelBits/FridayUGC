@@ -76,6 +76,15 @@ class MainActivity : AppCompatActivity() {
             text = "Read-only mode (safe default)"
             isChecked = FridayPreferences.readOnly(this@MainActivity)
         }
+        val debugOverlaySwitch = Switch(this).apply {
+            text = "Debug overlay (indexed bounds)"
+            isChecked = FridayPreferences.debugOverlay(this@MainActivity)
+        }
+        val somSwitch = Switch(this).apply {
+            text = "Set-of-Marks on screenshots"
+            isChecked = FridayPreferences.somEnabled(this@MainActivity)
+        }
+        val imeBtn = Button(this).apply { text = "Enable Friday IME" }
         val a11yBtn = Button(this).apply { text = "Enable Accessibility" }
         val healthBtn = Button(this).apply { text = "Check brain" }
         val speakBtn = Button(this).apply { text = "Speak goal" }
@@ -94,6 +103,9 @@ class MainActivity : AppCompatActivity() {
         root.addView(status)
         root.addView(goalInput)
         root.addView(readOnlySwitch)
+        root.addView(debugOverlaySwitch)
+        root.addView(somSwitch)
+        root.addView(imeBtn)
         root.addView(a11yBtn)
         root.addView(healthBtn)
         root.addView(speakBtn)
@@ -111,6 +123,20 @@ class MainActivity : AppCompatActivity() {
         readOnlySwitch.setOnCheckedChangeListener { _, checked ->
             FridayPreferences.setReadOnly(this, checked)
             status.text = if (checked) "Read-only: scroll/observe only." else "Full mode: engagement needs approval."
+        }
+        debugOverlaySwitch.setOnCheckedChangeListener { _, checked ->
+            FridayPreferences.setDebugOverlay(this, checked)
+            if (!checked) FridayAccessibilityService.instance?.updateDebugOverlay(
+                com.miguelbits.fridayugc.model.Screen("", "", emptyList()),
+                false,
+            )
+        }
+        somSwitch.setOnCheckedChangeListener { _, checked ->
+            FridayPreferences.setSomEnabled(this, checked)
+        }
+        imeBtn.setOnClickListener {
+            ImeHelper.openImeSettings(this)
+            status.text = "Enable Friday Agent IME in keyboard settings."
         }
 
         a11yBtn.setOnClickListener {

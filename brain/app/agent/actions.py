@@ -101,6 +101,14 @@ class StepResponse(BaseModel):
     approval_required: bool = False
 
 
+class SomMark(BaseModel):
+    mark_id: int
+    x: int = 0
+    y: int = 0
+    text: str = ""
+    element_id: int = -1
+
+
 class GroundRequest(BaseModel):
     """Phone → brain: find tap target on screenshot (Gemma 3 vision, local)."""
 
@@ -111,6 +119,8 @@ class GroundRequest(BaseModel):
     screen_type: str = ""
     elements: list[ScreenElement] = Field(default_factory=list)
     row_index: int = 0
+    som_marks: list[SomMark] = Field(default_factory=list)
+    use_som: bool = True
 
 
 class GroundResponse(BaseModel):

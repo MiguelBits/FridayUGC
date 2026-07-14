@@ -178,6 +178,15 @@ data class StepResponse(
 )
 
 @Serializable
+data class SomMark(
+    @SerialName("mark_id") val markId: Int,
+    val x: Int = 0,
+    val y: Int = 0,
+    val text: String = "",
+    @SerialName("element_id") val elementId: Int = -1,
+)
+
+@Serializable
 data class GroundRequest(
     val anchor: String,
     @SerialName("screenshot_b64") val screenshotB64: String,
@@ -186,6 +195,8 @@ data class GroundRequest(
     @SerialName("screen_type") val screenType: String = "",
     val elements: List<ScreenElement> = emptyList(),
     @SerialName("row_index") val rowIndex: Int = 0,
+    @SerialName("som_marks") val somMarks: List<SomMark> = emptyList(),
+    @SerialName("use_som") val useSom: Boolean = true,
 )
 
 @Serializable

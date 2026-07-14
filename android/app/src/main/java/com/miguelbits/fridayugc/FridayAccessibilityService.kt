@@ -12,6 +12,8 @@ class FridayAccessibilityService : AccessibilityService() {
     lateinit var executor: ActionExecutor
         private set
 
+    private var debugOverlay: DebugOverlay? = null
+
     @Volatile
     private var lastActivityClass: String = ""
 
@@ -36,6 +38,8 @@ class FridayAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onDestroy() {
+        debugOverlay?.hide()
+        debugOverlay = null
         if (instance === this) instance = null
         super.onDestroy()
     }
@@ -57,6 +61,16 @@ class FridayAccessibilityService : AccessibilityService() {
         packageName = currentPackage(),
         activity = currentActivityClass(),
     )
+
+    fun updateDebugOverlay(screen: com.miguelbits.fridayugc.model.Screen, enabled: Boolean) {
+        if (!enabled) {
+            debugOverlay?.hide()
+            debugOverlay = null
+            return
+        }
+        if (debugOverlay == null) debugOverlay = DebugOverlay(this)
+        debugOverlay?.show(screen)
+    }
 
     companion object {
         @Volatile

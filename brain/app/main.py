@@ -43,6 +43,7 @@ from .llm.health import check_model_ready
 from .runs import RunStore
 from .runs.schemas import RunMetrics, SessionRun
 from .ugc import director
+from .ugc.archetypes import load_archetypes
 from .ugc.schemas import (
     CaptionRequest,
     CaptionResponse,
@@ -77,6 +78,7 @@ from .learning.schemas import (
     DeviceMemorySyncRequest,
     EvalReport,
     LearningMetrics,
+    NovelPlanRecord,
     TrajectoryBatchRequest,
     TrajectoryBatchResponse,
 )
@@ -415,6 +417,17 @@ async def learning_run_eval(limit: int = 50) -> EvalReport:
 @app.get("/learning/eval/latest", response_model=EvalReport | None, dependencies=[Depends(require_token)])
 async def learning_latest_eval() -> EvalReport | None:
     return LearningService().latest_eval()
+
+
+@app.get("/learning/novel-plans", response_model=list[NovelPlanRecord], dependencies=[Depends(require_token)])
+async def learning_novel_plans(device_id: str | None = None, limit: int = 20) -> list[NovelPlanRecord]:
+    return LearningService().list_novel_plans(device_id=device_id, limit=min(limit, 100))
+
+
+@app.get("/content/archetypes", dependencies=[Depends(require_token)])
+async def content_archetypes() -> dict:
+    items = load_archetypes()
+    return {"count": len(items), "archetypes": items}
 
 
 # --- Inbox (DMs + comments — selective, capped replies) ---

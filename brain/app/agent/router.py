@@ -186,6 +186,29 @@ async def decide_legacy(req: StepRequest, persona_key: str = "lorena") -> StepRe
         return StepResponse.model_validate(cached)
 
     state = resolve_state(req)
+    if goal_wants_comment_likes(req.goal) and state.screen_type == "story_viewer":
+        back = apply_guards(
+            req,
+            StepResponse(
+                action="press",
+                params={"key": "back"},
+                say="Leaving Stories.",
+                reason="story_viewer blocked for comment-likes — press back first",
+                done=False,
+                needs_screenshot=False,
+                approval_required=False,
+            ),
+        )
+        operator.record_step(
+            session_id=req.session_id,
+            step=req.step,
+            action=back,
+            response=back.model_dump(),
+            session_context=req.session_context,
+        )
+        _record_step(req, back, latency_ms=0.0, guard_triggered=True, guard_reason="story_viewer_exit")
+        return back
+
     if _needs_reels_entry(req):
         entry = apply_guards(req, _reels_entry_response(req, state))
         operator.record_step(

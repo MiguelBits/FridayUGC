@@ -1,0 +1,32 @@
+{
+  "name": "comments_sheet_engage",
+  "route": true,
+  "request": {
+    "session_id": "eval-comments",
+    "goal": "Like comments on this reel",
+    "step": 4,
+    "mode": "read_only",
+    "screen": {
+      "app": "com.instagram.android",
+      "activity": "ReelsActivity",
+      "elements": [
+        {"id": 0, "role": "button", "text": "Like comment", "clickable": true, "x": 900, "y": 1500, "w": 60, "h": 60},
+        {"id": 1, "role": "button", "text": "Like comment", "clickable": true, "x": 900, "y": 1600, "w": 60, "h": 60}
+      ],
+      "screenshot_b64": "fake"
+    },
+    "history": ["open_app", "navigate", "intent", "intent"],
+    "session_context": {"phase": "reels", "comment_likes_used": 0, "comment_likes_max": 50},
+    "screen_state": {
+      "app_package": "com.instagram.android",
+      "screen_type": "comments_sheet",
+      "selected_tab": "reels",
+      "confidence": 0.88,
+      "element_count": 2,
+      "needs_vision": true
+    }
+  },
+  "expect": {
+    "action_in": ["intent", "like_comment", "tap"]
+  }
+}

@@ -56,7 +56,7 @@ NEGATIVES = (
 INSTAGRAM_NAV = (
     "\nINSTAGRAM NAVIGATION (prefer intents — phone binds motor at execution time):\n"
     "- STORIES: horizontal avatar circles at TOP of home feed → opens story_viewer (full-screen stories).\n"
-    "- REELS: intent enter_reels — phone tries bottom nav, feed pager swipe, deep link, device memory.\n"
+    "- REELS: intent enter_reels — phone uses bottom nav, deep link, device memory, then ONE controlled swipe LEFT if needed. NEVER swipe RIGHT.\n"
     "- REELS alt: {\"action\":\"navigate\",\"params\":{\"tab\":\"reels\"}} — never tap top story tray.\n"
     "- If screen_type=story_viewer: intent go_back, then intent enter_reels.\n"
 )
@@ -478,14 +478,27 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
 
     if goal_wants_comment_likes(req.goal) and resp.action in {"swipe", "scroll"}:
         direction = str(resp.params.get("direction", "")).lower()
+        if direction == "right":
+            return StepResponse(
+                action="intent",
+                params={"name": "enter_reels"},
+                say="Blocked swipe RIGHT — opening Reels.",
+                reason="Swipe RIGHT opens Stories — blocked; use enter_reels or swipe LEFT only",
+                done=False,
+                needs_screenshot=False,
+                approval_required=False,
+            )
+
+    if goal_wants_comment_likes(req.goal) and resp.action in {"swipe", "scroll"}:
+        direction = str(resp.params.get("direction", "")).lower()
         if direction in {"left", "right"}:
             ctx = req.session_context or {}
             if not on_reels_surface(state, ctx, req.screen):
                 return StepResponse(
-                    action="navigate",
-                    params={"tab": "reels"},
+                    action="intent",
+                    params={"name": "enter_reels"},
                     say="Opening Reels.",
-                    reason=f"Blocked horizontal {direction} before reels_viewer",
+                    reason=f"Blocked horizontal {direction} before reels_viewer — intent enter_reels",
                     done=False,
                     needs_screenshot=False,
                     approval_required=False,
@@ -499,6 +512,24 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
                 needs_screenshot=False,
                 approval_required=False,
             )
+
+    # Before reels_tab_opened is confirmed, block LLM from emitting raw tap x,y — those
+    # coords are hallucinated on icon-only Instagram bottom nav. Force intent enter_reels.
+    if (
+        goal_wants_comment_likes(req.goal)
+        and not on_reels_surface(state, req.session_context or {}, req.screen)
+        and resp.action == "tap"
+        and ("x" in resp.params or "y" in resp.params)
+    ):
+        return StepResponse(
+            action="intent",
+            params={"name": "enter_reels"},
+            say="Opening Reels first.",
+            reason="Blocked raw tap during enter-Reels phase — LLM cannot hallucinate coords",
+            done=False,
+            needs_screenshot=False,
+            approval_required=False,
+        )
 
     if goal_wants_comment_likes(req.goal) and resp.action == "intent":
         name = str(resp.params.get("name", "")).lower()

@@ -1,0 +1,30 @@
+{
+  "name": "open_inbox_from_home",
+  "request": {
+    "session_id": "eval-inbox",
+    "goal": "Open Instagram inbox and check messages",
+    "step": 2,
+    "mode": "read_only",
+    "screen": {
+      "app": "com.instagram.android",
+      "activity": "HomeActivity",
+      "elements": [
+        {"id": 0, "role": "tab", "text": "Home", "clickable": true, "x": 50, "y": 2200, "w": 100, "h": 80},
+        {"id": 1, "role": "tab", "text": "Reels", "clickable": true, "x": 200, "y": 2200, "w": 100, "h": 80},
+        {"id": 2, "role": "tab", "text": "Messages", "clickable": true, "x": 650, "y": 2200, "w": 120, "h": 80}
+      ]
+    },
+    "history": ["open_app", "wait"],
+    "screen_state": {
+      "app_package": "com.instagram.android",
+      "screen_type": "home_feed",
+      "selected_tab": "home",
+      "confidence": 0.85,
+      "element_count": 3
+    }
+  },
+  "expect": {
+    "action_in": ["navigate", "intent"],
+    "params_tab": "inbox"
+  }
+}

@@ -1,4 +1,4 @@
-"""Vision grounding — Gemma 3 finds tap targets from screenshots (no OpenAI)."""
+"""Vision grounding — Gemma 3 finds tap targets from screenshots (Set-of-Marks + coords)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 from ..config import get_settings
 from ..llm import ChatMessage, get_vision_llm
-from .actions import GroundRequest, GroundResponse, ScreenElement
+from .actions import GroundRequest, GroundResponse, ScreenElement, SomMark
 
 ANCHOR_HINTS: dict[str, str] = {
     "comments_icon": (
@@ -24,9 +24,15 @@ ANCHOR_HINTS: dict[str, str] = {
 }
 
 GROUND_SYSTEM = (
-    "You are a mobile UI grounding model. The user sends a phone screenshot and asks "
-    "where to tap. Return ONLY valid JSON with pixel coordinates matching SCREEN_SIZE. "
-    "Tap the CENTER of the target icon. If unsure, set confidence below 0.5."
+    "You are a mobile UI grounding model. The user sends a phone screenshot (often with "
+    "numbered Set-of-Marks overlays on interactive elements) and asks where to tap. "
+    "Return ONLY valid JSON. Prefer mark_id when SOM_MARKS are listed; otherwise use x,y pixels."
+)
+
+GROUND_SYSTEM_SOM = (
+    "You are a mobile UI grounding model. The screenshot has numbered orange boxes (Set-of-Marks). "
+    "Pick the mark_id whose labeled element best matches the ANCHOR description. "
+    "Return ONLY JSON: {\"mark_id\":int,\"confidence\":0.0-1.0,\"reason\":\"...\"}"
 )
 
 
@@ -41,11 +47,32 @@ def _elements_hint(elements: list[ScreenElement]) -> str:
     return "\n".join(lines)
 
 
+def _som_hint(marks: list[SomMark]) -> str:
+    if not marks:
+        return "(no Set-of-Marks — use pixel coordinates)"
+    lines = []
+    for m in marks[:25]:
+        label = f" text={m.text!r}" if m.text else ""
+        lines.append(f"  mark_id={m.mark_id} center={m.x},{m.y}{label}")
+    return "\n".join(lines)
+
+
 def _build_ground_prompt(req: GroundRequest) -> str:
     hint = ANCHOR_HINTS.get(req.anchor, req.anchor)
     row_line = ""
     if req.anchor == "comment_heart" and req.row_index > 0:
         row_line = f"Pick the heart for comment row index {req.row_index} (0=top visible comment).\n"
+    use_som = req.use_som and len(req.som_marks) > 0
+    if use_som:
+        return (
+            "GROUND_TARGET_SOM_JSON\n"
+            f"ANCHOR: {req.anchor}\n"
+            f"DESCRIPTION: {hint}\n"
+            f"SCREEN_TYPE: {req.screen_type}\n"
+            f"{row_line}"
+            f"SOM_MARKS (numbered boxes on image):\n{_som_hint(req.som_marks)}\n"
+            'Return JSON: {"mark_id":int,"confidence":0.0-1.0,"reason":"..."}\n'
+        )
     return (
         "GROUND_TARGET_JSON\n"
         f"ANCHOR: {req.anchor}\n"
@@ -60,6 +87,30 @@ def _build_ground_prompt(req: GroundRequest) -> str:
     )
 
 
+def _resolve_mark(mark_id: int, marks: list[SomMark]) -> tuple[int, int] | None:
+    for m in marks:
+        if m.mark_id == mark_id:
+            return m.x, m.y
+    return None
+
+
+def _pick_mock_mark(req: GroundRequest) -> int | None:
+    """Heuristic mark selection for mock provider."""
+    if not req.som_marks:
+        return None
+    anchor = req.anchor
+    if anchor == "comments_icon":
+        # Right-rail elements tend to be high x
+        sorted_m = sorted(req.som_marks, key=lambda m: (-m.x, m.y))
+        return sorted_m[0].mark_id if sorted_m else None
+    if anchor == "comment_heart":
+        sheet = [m for m in req.som_marks if m.y > (req.screen_height or 2400) * 0.55]
+        sheet.sort(key=lambda m: m.y)
+        idx = min(req.row_index, len(sheet) - 1) if sheet else 0
+        return sheet[idx].mark_id if sheet else req.som_marks[0].mark_id
+    return req.som_marks[0].mark_id
+
+
 def _parse_ground_json(raw: str) -> dict[str, Any]:
     text = raw.strip()
     if "```" in text:
@@ -71,7 +122,7 @@ def _parse_ground_json(raw: str) -> dict[str, Any]:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    m = re.search(r"\{[^{}]*\"x\"\s*:\s*\d+[^{}]*\}", text)
+    m = re.search(r"\{[^{}]*(\"mark_id\"|\"x\")\s*:\s*\d+[^{}]*\}", text)
     if m:
         try:
             return json.loads(m.group(0))
@@ -81,6 +132,19 @@ def _parse_ground_json(raw: str) -> dict[str, Any]:
 
 
 def _mock_ground(req: GroundRequest) -> GroundResponse:
+    if req.use_som and req.som_marks:
+        mark_id = _pick_mock_mark(req)
+        if mark_id is not None:
+            coords = _resolve_mark(mark_id, req.som_marks)
+            if coords:
+                x, y = coords
+                action = "like_comment" if req.anchor == "comment_heart" else "tap"
+                return GroundResponse(
+                    action=action,
+                    params={"x": x, "y": y, "mark_id": mark_id},
+                    confidence=0.8,
+                    reason=f"mock som mark {mark_id} for {req.anchor}",
+                )
     w = req.screen_width or 1080
     h = req.screen_height or 2400
     presets = {
@@ -133,11 +197,13 @@ async def ground_target(req: GroundRequest) -> GroundResponse:
             needs_screenshot=True,
         )
 
+    use_som = req.use_som and len(req.som_marks) > 0
+    system = GROUND_SYSTEM_SOM if use_som else GROUND_SYSTEM
     prompt = _build_ground_prompt(req)
     llm = get_vision_llm()
     try:
         raw = await llm.chat(
-            [ChatMessage("system", GROUND_SYSTEM), ChatMessage("user", prompt, images=[shot])],
+            [ChatMessage("system", system), ChatMessage("user", prompt, images=[shot])],
             json_mode=True,
             temperature=0.2,
             max_tokens=256,
@@ -152,6 +218,41 @@ async def ground_target(req: GroundRequest) -> GroundResponse:
         )
 
     data = _parse_ground_json(raw)
+
+    if use_som:
+        mark_id = data.get("mark_id")
+        try:
+            mid = int(mark_id)
+        except (TypeError, ValueError):
+            return GroundResponse(
+                action="tap",
+                params={},
+                confidence=0.0,
+                reason="som parse failed — no mark_id",
+                needs_screenshot=True,
+            )
+        coords = _resolve_mark(mid, req.som_marks)
+        if not coords:
+            return GroundResponse(
+                action="tap",
+                params={},
+                confidence=0.0,
+                reason=f"unknown mark_id {mid}",
+                needs_screenshot=True,
+            )
+        xi, yi = coords
+        action = "like_comment" if req.anchor == "comment_heart" else "tap"
+        try:
+            conf = float(data.get("confidence", 0.75))
+        except (TypeError, ValueError):
+            conf = 0.75
+        return GroundResponse(
+            action=action,
+            params={"x": xi, "y": yi, "mark_id": mid},
+            confidence=conf,
+            reason=str(data.get("reason", f"som mark {mid} for {req.anchor}")),
+        )
+
     params = data.get("params") if isinstance(data.get("params"), dict) else data
     if not isinstance(params, dict):
         params = {}

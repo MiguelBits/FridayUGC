@@ -10,6 +10,8 @@ object FridayPreferences {
     private const val KEY_SCHEDULED = "scheduled"
     private const val KEY_AUTONOMOUS = "autonomous"
     private const val KEY_DEVICE_ID = "device_id"
+    private const val KEY_DEBUG_OVERLAY = "debug_overlay"
+    private const val KEY_SOM_ENABLED = "som_enabled"
 
     fun readOnly(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -66,5 +68,27 @@ object FridayPreferences {
             prefs.edit().putString(KEY_DEVICE_ID, id).apply()
         }
         return id
+    }
+
+    fun debugOverlay(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_DEBUG_OVERLAY, false)
+
+    fun setDebugOverlay(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_DEBUG_OVERLAY, enabled)
+            .apply()
+    }
+
+    fun somEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SOM_ENABLED, true)
+
+    fun setSomEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_SOM_ENABLED, enabled)
+            .apply()
     }
 }

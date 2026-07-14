@@ -70,6 +70,23 @@ def test_fallback_navigates_before_swipe():
     assert data["params"]["tab"] == "reels"
 
 
+def test_guard_blocks_swipe_right_always_for_comment_likes():
+    from app.agent.actions import ScreenState
+
+    req = StepRequest(
+        session_id="eval-right",
+        goal="reels_comment_likes",
+        step=2,
+        screen=Screen(app="com.instagram.android", elements=[]),
+        screen_state=ScreenState(screen_type="reels_viewer", confidence=0.9),
+        session_context={"reels_tab_opened": 1},
+    )
+    raw = StepResponse(action="swipe", params={"direction": "right"}, reason="model mistake")
+    guarded = apply_guards(req, raw)
+    assert guarded.action == "intent"
+    assert guarded.params.get("name") == "enter_reels"
+
+
 def test_guard_blocks_horizontal_swipe_before_reels():
     from app.agent.actions import ScreenState
 
@@ -87,8 +104,31 @@ def test_guard_blocks_horizontal_swipe_before_reels():
     for direction in ("left", "right"):
         raw = StepResponse(action="swipe", params={"direction": direction}, reason="nav")
         guarded = apply_guards(req, raw)
-        assert guarded.action == "navigate", direction
-        assert guarded.params["tab"] == "reels"
+        # Horizontal swipes before reels_viewer are redirected to intent enter_reels
+        # so the phone binds motor at execution time (a11y → memory → deep link).
+        assert guarded.action == "intent", direction
+        assert guarded.params["name"] == "enter_reels"
+
+
+def test_guard_blocks_raw_tap_xy_before_reels():
+    """LLM must not hallucinate bottom-nav coords — force intent enter_reels."""
+    from app.agent.actions import ScreenState
+
+    req = StepRequest(
+        session_id="s1",
+        goal="Like comments on 10 reels",
+        step=1,
+        screen=Screen(
+            app="com.instagram.android",
+            elements=[ScreenElement(id=0, text="For you")],
+        ),
+        screen_state=ScreenState(screen_type="home_feed", confidence=0.9),
+        session_context={"phase": "reels_comment_likes"},
+    )
+    raw = StepResponse(action="tap", params={"x": 550, "y": 2340}, reason="tap reels tab")
+    guarded = apply_guards(req, raw)
+    assert guarded.action == "intent"
+    assert guarded.params["name"] == "enter_reels"
 
 
 def test_guard_skips_repeat_navigate_when_on_reels():

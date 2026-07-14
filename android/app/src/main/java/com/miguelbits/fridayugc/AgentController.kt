@@ -112,21 +112,20 @@ class AgentController(
         val wantsCommentLikes = goalWantsCommentLikes(goal)
         if (wantsCommentLikes) tracker.phase = "reels_comment_likes"
 
+        val appCtx = svc.applicationContext
+        val deviceId = FridayPreferences.deviceId(appCtx)
+        val memoryStore = DeviceMemoryStore(appCtx)
+        runCatching { memoryStore.hydrateFromBrain(brain, deviceId) }
+            .onFailure { onSay("Memory hydrate skipped: ${it.message}") }
+        svc.executor.attachMemory(memoryStore)
+
         if (wantsCommentLikes && !tracker.reelsTabOpened) {
-            onSay("Preflight: navigating to Reels…")
-            val nav = svc.executor.execute(
-                StepResponse(
-                    action = "navigate",
-                    params = mapOf("tab" to JsonPrimitive("reels")),
-                    reason = "preflight enter_reels — a11y/memory/deep-link only",
-                ),
-            )
-            delay(2200)
-            val afterPreflight = svc.readScreen()
-            val afterState = ScreenClassifier.classify(afterPreflight, svc.currentActivityClass())
-            tracker.reelsTabOpened = nav.ok && ScreenClassifier.likelyReelsSurface(afterState, afterPreflight)
-            // NO pager swipe fallback here — pager swipes caused the horizontal RIGHT swipe bug.
-            // If navigate failed the main loop will retry via IntentResolver + vision.
+            onSay("Preflight: entering Reels (nav → deep link → swipe LEFT only)…")
+            val entry = ReelsEntry.enter(svc, memoryStore) { onSay(it) }
+            tracker.reelsTabOpened = entry.reelsTabOpened
+            if (!entry.reelsTabOpened) {
+                onSay("Preflight Reels entry not confirmed (${entry.screenType}) — brain will retry.")
+            }
         }
 
         if (goalWantsPosting(goal)) {
@@ -153,15 +152,6 @@ class AgentController(
         val history = ArrayList<String>()
         var last: LastResult? = null
         val wantsIg = goalWantsInstagram(goal)
-        val appCtx = svc.applicationContext
-        val deviceId = FridayPreferences.deviceId(appCtx)
-        val memoryStore = DeviceMemoryStore(appCtx)
-        // Cold-start bootstrap: pull previously-learned device memory from the brain
-        // so the first tap on Instagram uses learned coords (memory hit) before falling
-        // through to /agent/ground. This is learning-that-persists, NOT hardcoding.
-        runCatching { memoryStore.hydrateFromBrain(brain, deviceId) }
-            .onFailure { onSay("Memory hydrate skipped: ${it.message}") }
-        svc.executor.attachMemory(memoryStore)
         val intentResolver = IntentResolver(svc, memoryStore, brain)
         val reporter = VerifiedStepReporter(brain, memoryStore, deviceId, voiceScope)
         var stepEnteredAt = System.currentTimeMillis()
@@ -180,12 +170,34 @@ class AgentController(
                 return false
             }
 
+            if (consecutiveFailures >= 5 && consecutiveFailures % 5 == 0) {
+                onSay("Stuck — recovery (back + wait)…")
+                svc.executor.execute(
+                    StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
+                )
+                delay(900)
+                consecutiveFailures = 0
+                continue
+            }
+
             val activity = svc.currentActivityClass()
-            val base = svc.readScreen().copy(activity = activity)
-            val screenState = ScreenClassifier.classify(base, activity)
+            var base = svc.readScreen().copy(activity = activity)
+            var screenState = ScreenClassifier.classify(base, activity)
+            if (wantsCommentLikes && screenState.screenType == "story_viewer") {
+                onSay("Stories open — pressing back…")
+                svc.executor.execute(
+                    StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
+                )
+                delay(900)
+                base = svc.readScreen().copy(activity = svc.currentActivityClass())
+                screenState = ScreenClassifier.classify(base, svc.currentActivityClass())
+                tracker.reelsTabOpened = false
+            }
             val fingerprint = ScreenValidator.fingerprint(base)
             val stale = ScreenValidator.isStale(lastFingerprint, fingerprint)
             lastFingerprint = fingerprint
+
+            svc.updateDebugOverlay(base, FridayPreferences.debugOverlay(svc.applicationContext))
 
             val wantScreenshot = wantsIg && (
                 screenState.screenType in instagramVisionScreens ||
@@ -199,8 +211,12 @@ class AgentController(
             var screen = if (wantScreenshot) {
                 onSay("Sending screenshot to brain…")
                 onProgress(AgentProgress.StepThinking(step, withScreenshot = true))
-                val b64 = ScreenCapture.captureBase64(svc)
-                if (b64 != null) base.copy(screenshotB64 = b64) else base
+                val cap = ScreenCapture.captureForGrounding(
+                    svc,
+                    base,
+                    useSom = FridayPreferences.somEnabled(svc.applicationContext),
+                )
+                if (cap != null) base.copy(screenshotB64 = cap.screenshotB64) else base
             } else {
                 base
             }
@@ -240,9 +256,13 @@ class AgentController(
 
             if (finalResp.needsScreenshot && screen.screenshotB64.isNullOrBlank()) {
                 onSay("Brain requested screenshot — recapturing…")
-                val b64 = ScreenCapture.captureBase64(svc)
-                if (b64 != null) {
-                    screen = base.copy(screenshotB64 = b64)
+                val cap = ScreenCapture.captureForGrounding(
+                    svc,
+                    base,
+                    useSom = FridayPreferences.somEnabled(svc.applicationContext),
+                )
+                if (cap != null) {
+                    screen = base.copy(screenshotB64 = cap.screenshotB64)
                     finalResp = runCatching { brain.step(req.copy(screen = screen)) }.getOrElse {
                         onSay("Brain unreachable on retry: ${it.message}")
                         return false
@@ -395,23 +415,20 @@ class AgentController(
         }
 
         var toExecute = resp
+        if (wantsCommentLikes) {
+            val screenType = ScreenClassifier.classify(screen, svc.currentActivityClass()).screenType
+            MotorPolicy.clampCommentLikes(resp, tracker.reelsTabOpened, screenType)?.let { toExecute = it }
+        }
         if (isStuckEnteringReels(history, wantsCommentLikes)) {
             onSay("Stuck on home — forcing Reels entry…")
             toExecute = StepResponse(
                 action = "navigate",
-                params = mapOf("tab" to JsonPrimitive("reels")),
+                params = mapOf(
+                    "tab" to JsonPrimitive("reels"),
+                    "ui_key" to JsonPrimitive("nav_reels"),
+                ),
                 reason = "stuck_breaker enter_reels",
             )
-        } else if (wantsCommentLikes && !tracker.reelsTabOpened && resp.action in setOf("swipe", "scroll")) {
-            val dir = (resp.params["direction"] as? JsonPrimitive)?.content?.lowercase().orEmpty()
-            if (dir == "right" || (dir == "left" && resp.action == "swipe")) {
-                onSay("Blocking wrong horizontal swipe — opening Reels…")
-                toExecute = StepResponse(
-                    action = "navigate",
-                    params = mapOf("tab" to JsonPrimitive("reels")),
-                    reason = "clamp horizontal before reels confirmed",
-                )
-            }
         } else if (resp.action == "intent") {
             var shot = screen.screenshotB64
             var resolved = intentResolver.resolve(

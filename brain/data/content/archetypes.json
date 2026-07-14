@@ -1,0 +1,58 @@
+[
+  {
+    "id": "gym_grind",
+    "hook": "Nobody talks about this leg day mistake…",
+    "formula": "contrarian + gym tip + comment bait",
+    "pillars": ["gym", "fitness", "legs"],
+    "cta_style": 1
+  },
+  {
+    "id": "mirror_check",
+    "hook": "POV: you finally nailed the outfit",
+    "formula": "pov + outfit reveal + save bait",
+    "pillars": ["fashion", "mirror", "ootd"],
+    "cta_style": 1
+  },
+  {
+    "id": "morning_routine",
+    "hook": "5am club but make it realistic",
+    "formula": "relatable routine + soft motivation",
+    "pillars": ["lifestyle", "morning", "wellness"],
+    "cta_style": 2
+  },
+  {
+    "id": "hot_take",
+    "hook": "Unpopular opinion about gym culture",
+    "formula": "contrarian hot take + debate",
+    "pillars": ["gym", "mindset"],
+    "cta_style": 1
+  },
+  {
+    "id": "transformation_tease",
+    "hook": "Same girl, different energy",
+    "formula": "before/after tease without claims",
+    "pillars": ["fitness", "confidence"],
+    "cta_style": 3
+  },
+  {
+    "id": "storytime_hook",
+    "hook": "The DM I almost ignored…",
+    "formula": "micro story + curiosity gap",
+    "pillars": ["lifestyle", "community"],
+    "cta_style": 2
+  },
+  {
+    "id": "tutorial_bite",
+    "hook": "Do this before your next set",
+    "formula": "actionable micro-tip",
+    "pillars": ["gym", "tips"],
+    "cta_style": 1
+  },
+  {
+    "id": "weekend_vibes",
+    "hook": "Saturday energy only",
+    "formula": "mood + location tease",
+    "pillars": ["lifestyle", "weekend"],
+    "cta_style": 1
+  }
+]

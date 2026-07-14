@@ -1,0 +1,14 @@
+{
+  "name": "reach_inbox",
+  "goal": "Navigate to Instagram inbox",
+  "difficulty": "medium",
+  "max_steps": 15,
+  "mode": "read_only",
+  "success": {
+    "screen_type": "inbox",
+    "foreground_app_contains": "instagram",
+    "min_element_count": 5,
+    "action_trajectory_subset": ["navigate"]
+  },
+  "notes": "AppAgent-inspired inbox navigation task"
+}

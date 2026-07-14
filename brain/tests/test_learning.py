@@ -100,6 +100,20 @@ def test_learning_api_endpoints():
     assert r.status_code == 200
 
 
+def test_novel_plan_recorded_on_verified_sequence():
+    svc = LearningService()
+    steps = [
+        _step(step=i, action=a, device_id="novel-phone", session_id="novel-s1")
+        for i, a in enumerate(["open_app", "navigate", "intent"], start=1)
+    ]
+    svc.record_trajectory(TrajectoryBatchRequest(device_id="novel-phone", steps=steps))
+    plans = svc.list_novel_plans("novel-phone")
+    assert len(plans) == 1
+    assert plans[0].action_sequence == ["open_app", "navigate", "intent"]
+    hints = svc.novel_plan_hints("novel-phone")
+    assert "NOVEL_PLANS" in hints
+
+
 def test_vision_on_ambiguous_without_screenshot():
     from app.agent.actions import Screen, ScreenElement, StepRequest
     from app.agent.router import decide_legacy

@@ -12,6 +12,7 @@ from .schemas import (
     EvalFailureCase,
     EvalReport,
     LearningMetrics,
+    NovelPlanRecord,
     VerifiedStepRecord,
 )
 
@@ -78,6 +79,16 @@ class LearningStore:
                     ran_at TEXT NOT NULL,
                     payload TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS novel_plans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_id TEXT NOT NULL,
+                    goal TEXT NOT NULL,
+                    signature TEXT NOT NULL UNIQUE,
+                    action_sequence TEXT NOT NULL,
+                    step_count INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_novel_device ON novel_plans(device_id);
                 """
             )
 
@@ -120,6 +131,81 @@ class LearningStore:
                 if step.verified == "verified" and step.executor_ok:
                     self._bump_memory(conn, step)
         return len(steps), failures
+
+    def record_novel_plans(self, steps: list[VerifiedStepRecord]) -> list[NovelPlanRecord]:
+        """Persist first-seen verified action sequences (Genie novel-plan pattern)."""
+        verified = [s for s in steps if s.verified == "verified" and s.executor_ok]
+        if len(verified) < 3:
+            return []
+        actions = [s.action for s in verified]
+        signature = "|".join(actions)
+        goal = verified[0].goal
+        device_id = verified[0].device_id
+        created: list[NovelPlanRecord] = []
+        with self._conn() as conn:
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO novel_plans(device_id, goal, signature, action_sequence, step_count, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (device_id, goal, signature, json.dumps(actions), len(actions), _utc_now()),
+                )
+                created.append(
+                    NovelPlanRecord(
+                        device_id=device_id,
+                        goal=goal,
+                        signature=signature,
+                        action_sequence=actions,
+                        step_count=len(actions),
+                        created_at=_utc_now(),
+                    )
+                )
+            except sqlite3.IntegrityError:
+                pass
+        return created
+
+    def list_novel_plans(self, device_id: str | None = None, limit: int = 20) -> list[NovelPlanRecord]:
+        with self._conn() as conn:
+            if device_id:
+                rows = conn.execute(
+                    "SELECT * FROM novel_plans WHERE device_id = ? ORDER BY id DESC LIMIT ?",
+                    (device_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM novel_plans ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        out: list[NovelPlanRecord] = []
+        for row in rows:
+            try:
+                seq = json.loads(row["action_sequence"])
+            except json.JSONDecodeError:
+                seq = []
+            out.append(
+                NovelPlanRecord(
+                    device_id=row["device_id"],
+                    goal=row["goal"],
+                    signature=row["signature"],
+                    action_sequence=seq if isinstance(seq, list) else [],
+                    step_count=int(row["step_count"]),
+                    created_at=row["created_at"],
+                )
+            )
+        return out
+
+    def novel_plan_hints(self, device_id: str, limit: int = 5) -> str:
+        plans = self.list_novel_plans(device_id, limit=limit)
+        if not plans:
+            return ""
+        lines = ["NOVEL_PLANS (verified sequences learned on this device):"]
+        for p in plans:
+            preview = " → ".join(p.action_sequence[:6])
+            if len(p.action_sequence) > 6:
+                preview += " → …"
+            lines.append(f"  - {p.goal[:80]!r}: {preview}")
+        return "\n".join(lines) + "\n"
 
     def _bump_memory(self, conn: sqlite3.Connection, step: VerifiedStepRecord) -> None:
         ui_key = _ui_key_for_action(step.action, step.params)

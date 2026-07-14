@@ -6,6 +6,7 @@ import com.miguelbits.fridayugc.model.VerifiedStepRecord
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 
 /** Reports verified step outcomes to brain and updates local device memory. */
 class VerifiedStepReporter(
@@ -29,7 +30,15 @@ class VerifiedStepReporter(
         afterFp: String,
         error: String? = null,
     ) {
-        memoryStore.bump(action, params, verification.status, igVersion)
+        // Resolve target_id → element center so learning never stores 0,0.
+        // Cold start uses the a11y bind → after verify, memory has real coords.
+        val resolvedXY: Pair<Int, Int>? = run {
+            val tid = (params["target_id"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return@run null
+            val el = before.elements.firstOrNull { it.id == tid } ?: return@run null
+            if (el.w <= 0 || el.h <= 0) return@run null
+            (el.x + el.w / 2) to (el.y + el.h / 2)
+        }
+        memoryStore.bump(action, params, verification.status, igVersion, resolvedXY)
         val record = VerifiedStepRecord(
             sessionId = sessionId,
             deviceId = deviceId,

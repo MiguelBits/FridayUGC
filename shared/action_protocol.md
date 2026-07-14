@@ -123,6 +123,8 @@ See `brain/app/ugc/schemas.py` for exact request/response shapes.
 
 ## 6. Vision grounding (Gemma 3, local)
 
-`POST /agent/ground` — phone sends screenshot + anchor; brain returns tap coordinates.
+`POST /agent/ground` — phone sends screenshot + anchor (+ optional `som_marks` from Set-of-Marks overlay); brain returns tap coordinates or resolves `mark_id` to x,y.
 Used when accessibility tree and device memory cannot bind icon-only Instagram UI.
 No OpenAI key required — uses `FRIDAY_VISION_MODEL` (default `google/gemma-3-12b-it`) on vLLM.
+
+GroundRequest fields: `som_marks[]` with `{mark_id, x, y, text, element_id}`, `use_som` (default true when marks present).

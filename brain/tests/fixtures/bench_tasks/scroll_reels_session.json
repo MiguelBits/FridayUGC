@@ -1,0 +1,12 @@
+{
+  "name": "scroll_reels_session",
+  "goal": "Scroll Instagram reels for 2 minutes in read-only mode",
+  "difficulty": "easy",
+  "max_steps": 30,
+  "mode": "read_only",
+  "success": {
+    "foreground_app_contains": "instagram",
+    "action_trajectory_subset": ["open_app"]
+  },
+  "notes": "MobileAgentBench-style task — validates final state contract"
+}

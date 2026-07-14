@@ -10,4 +10,6 @@
     <string name="notif_step_line">Step %1$d/%2$d · %3$s · %4$s · %5$s</string>
     <string name="notif_action_stop">Stop</string>
     <string name="notif_action_open">Open</string>
+    <string name="ime_label">Friday Agent IME</string>
+    <string name="ime_panel_hint">Friday IME active — agent will type into focused fields</string>
 </resources>

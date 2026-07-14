@@ -3,6 +3,7 @@ package com.miguelbits.fridayugc
 import com.miguelbits.fridayugc.model.GroundRequest
 import com.miguelbits.fridayugc.model.Screen
 import com.miguelbits.fridayugc.model.ScreenState
+import com.miguelbits.fridayugc.model.SomMark
 import com.miguelbits.fridayugc.model.StepResponse
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.random.Random
@@ -29,19 +30,26 @@ class IntentResolver(
         screenState: ScreenState,
         tracker: SessionTracker,
         screenshotB64: String? = null,
+        somMarks: List<SomMark> = emptyList(),
         forceVision: Boolean = false,
     ): ResolveResult {
         val name = (intent.params["name"] as? JsonPrimitive)?.content?.lowercase().orEmpty()
         return when (name) {
             "enter_reels" -> resolveEnterReels(screen, screenState, tracker)
             "watch_reel", "dwell" -> resolveDwell(intent)
-            "open_comments" -> resolveOpenComments(screen, screenState, screenshotB64, forceVision)
-            "engage_comments" -> resolveEngageComments(screen, tracker, screenshotB64, forceVision)
+            "open_comments" -> resolveOpenComments(screen, screenState, screenshotB64, somMarks, forceVision)
+            "engage_comments" -> resolveEngageComments(screen, tracker, screenshotB64, somMarks, forceVision)
             "next_reel" -> ResolveResult(
                 StepResponse(action = "swipe", params = mapOf("direction" to JsonPrimitive("up"))),
             )
             "browse_feed" -> {
-                val dir = (intent.params["direction"] as? JsonPrimitive)?.content ?: "up"
+                val dir = (intent.params["direction"] as? JsonPrimitive)?.content?.lowercase() ?: "up"
+                if (dir == "right") {
+                    return ResolveResult(
+                        MotorPolicy.navigateReels("blocked browse_feed RIGHT"),
+                        uiKey = "nav_reels",
+                    )
+                }
                 ResolveResult(
                     StepResponse(action = "swipe", params = mapOf("direction" to JsonPrimitive(dir))),
                 )
@@ -97,6 +105,22 @@ class IntentResolver(
                 ),
             )
         }
+        // Memory hit for the Reels bottom-nav tab → tap directly. Second run on the
+        // same device will land here after the first verified `nav_reels` tap.
+        memoryStore.lookup("nav_reels")?.let { (x, y) ->
+            return ResolveResult(
+                StepResponse(
+                    action = "tap",
+                    params = mapOf(
+                        "x" to JsonPrimitive(x),
+                        "y" to JsonPrimitive(y),
+                        "ui_key" to JsonPrimitive("nav_reels"),
+                    ),
+                    reason = "memory bind — nav_reels tap",
+                ),
+                uiKey = "nav_reels",
+            )
+        }
         return ResolveResult(
             StepResponse(
                 action = "navigate",
@@ -104,11 +128,17 @@ class IntentResolver(
                     "tab" to JsonPrimitive("reels"),
                     "ui_key" to JsonPrimitive("nav_reels"),
                 ),
-                reason = "enter_reels — bottom nav / deep link only (no pager swipe)",
+                reason = "enter_reels — a11y / deep link (no swipe RIGHT; LEFT only via ReelsEntry)",
             ),
             uiKey = "nav_reels",
         )
     }
+
+    /** Controlled pager LEFT — only ReelsEntry / explicit recovery may call this path. */
+    fun resolveEnterReelsPagerSwipe(): ResolveResult = ResolveResult(
+        MotorPolicy.pagerSwipeLeft(),
+        uiKey = "nav_reels",
+    )
 
     private fun resolveDwell(intent: StepResponse): ResolveResult {
         val ms = (intent.params["dwell_ms"] as? JsonPrimitive)?.content?.toLongOrNull()
@@ -238,6 +268,7 @@ class IntentResolver(
         screenState: ScreenState,
         rowIndex: Int,
         screenshotB64: String?,
+        somMarks: List<com.miguelbits.fridayugc.model.SomMark> = emptyList(),
         fallbackAction: String,
     ): ResolveResult {
         val shot = screenshotB64?.takeIf { it.isNotBlank() }
@@ -259,6 +290,8 @@ class IntentResolver(
                     screenType = screenState.screenType,
                     elements = screen.elements,
                     rowIndex = rowIndex,
+                    somMarks = somMarks,
+                    useSom = somMarks.isNotEmpty(),
                 ),
             )
             if (ground.needsScreenshot || ground.params.isEmpty()) {

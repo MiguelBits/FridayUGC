@@ -1,0 +1,31 @@
+{
+  "name": "story_viewer_go_back",
+  "route": true,
+  "request": {
+    "session_id": "eval-story",
+    "goal": "Comment likes on reels — do not stay in stories",
+    "step": 1,
+    "mode": "read_only",
+    "screen": {
+      "app": "com.instagram.android",
+      "activity": "StoryViewerActivity",
+      "elements": [
+        {"id": 0, "role": "button", "text": "Close", "clickable": true, "x": 40, "y": 80, "w": 80, "h": 80}
+      ]
+    },
+    "history": ["open_app"],
+    "session_context": {"phase": "reels", "likes_used": 0, "likes_max": 25},
+    "screen_state": {
+      "app_package": "com.instagram.android",
+      "screen_type": "story_viewer",
+      "selected_tab": "unknown",
+      "confidence": 0.9,
+      "element_count": 1,
+      "needs_vision": true
+    }
+  },
+  "expect": {
+    "action": "press",
+    "params_key": "back"
+  }
+}
