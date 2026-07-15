@@ -121,6 +121,7 @@ class GroundRequest(BaseModel):
     row_index: int = 0
     som_marks: list[SomMark] = Field(default_factory=list)
     use_som: bool = True
+    device_id: str = ""
 
 
 class GroundResponse(BaseModel):

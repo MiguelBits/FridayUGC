@@ -44,8 +44,19 @@ class AgentController(
     private var consecutiveFailures = 0
     private var lastIntentUiKey: String? = null
     private var lastIntentReground = 0
+    private var forceVisionRetry = false
+    private val anchorVerifyFails = mutableMapOf<String, Int>()
 
     fun exportContext(): Map<String, JsonElement> = tracker.toContext()
+
+    private suspend fun fetchBrainStep(req: StepRequest): StepResponse? =
+        runCatching { brain.step(req) }
+            .getOrElse {
+                onSay("Brain unreachable: ${it.message}")
+                onProgress(AgentProgress.SessionEnded(ok = false, reason = "Brain unreachable"))
+                consecutiveFailures++
+                null
+            }
 
     private fun emitBudget() {
         onProgress(AgentNotificationManager.budgetLineFrom(tracker))
@@ -121,11 +132,11 @@ class AgentController(
         svc.executor.attachMemory(memoryStore)
 
         if (wantsCommentLikes && !tracker.reelsTabOpened) {
-            onSay("Preflight: entering Reels (nav → deep link → swipe LEFT only)…")
-            val entry = ReelsEntry.enter(svc, memoryStore) { onSay(it) }
+            onSay("Preflight: entering Reels (deep link → vision)…")
+            val entry = ReelsEntry.enter(svc, brain) { onSay(it) }
             tracker.reelsTabOpened = entry.reelsTabOpened
-            if (!entry.reelsTabOpened) {
-                onSay("Preflight Reels entry not confirmed (${entry.screenType}) — brain will retry.")
+            if (!tracker.reelsTabOpened) {
+                onSay("Preflight Reels entry not confirmed (${entry.screenType}) — routine will retry.")
             }
         }
 
@@ -153,11 +164,13 @@ class AgentController(
         val history = ArrayList<String>()
         var last: LastResult? = null
         val wantsIg = goalWantsInstagram(goal)
-        val intentResolver = IntentResolver(svc, memoryStore, brain)
+        val intentResolver = IntentResolver(svc, brain)
         val reporter = VerifiedStepReporter(brain, memoryStore, deviceId, voiceScope)
         var stepEnteredAt = System.currentTimeMillis()
         lastIntentUiKey = null
         lastIntentReground = 0
+        forceVisionRetry = false
+        anchorVerifyFails.clear()
 
         for (step in 0 until maxSteps) {
             if (shouldStop()) {
@@ -203,10 +216,9 @@ class AgentController(
 
             svc.updateDebugOverlay(base, FridayPreferences.debugOverlay(svc.applicationContext))
 
-            val wantScreenshot = wantsIg && (
+            val wantScreenshot = wantsIg && !wantsCommentLikes && (
                 screenState.screenType in instagramVisionScreens ||
                 screenState.needsVision ||
-                wantsCommentLikes ||
                 last?.ok == false ||
                 last?.verified in setOf("failed", "unverified") ||
                 screenState.confidence < 0.55f ||
@@ -218,7 +230,7 @@ class AgentController(
                 val cap = ScreenCapture.captureForGrounding(
                     svc,
                     base,
-                    useSom = FridayPreferences.somEnabled(svc.applicationContext),
+                    useSom = false,
                 )
                 if (cap != null) base.copy(screenshotB64 = cap.screenshotB64) else base
             } else {
@@ -248,22 +260,42 @@ class AgentController(
             onSay("Thinking… step ${step + 1}")
             onProgress(AgentProgress.StepThinking(step))
 
-            val resp: StepResponse = runCatching { brain.step(req) }
-                .getOrElse {
-                    onSay("Brain unreachable: ${it.message}")
-                    onProgress(AgentProgress.SessionEnded(ok = false, reason = "Brain unreachable"))
-                    consecutiveFailures++
-                    return false
+            val onInstagram = screen.app.contains("instagram", ignoreCase = true) ||
+                svc.currentPackage().contains("instagram", ignoreCase = true)
+            if (onInstagram && screen.app.isBlank()) {
+                val pkg = svc.currentPackage()
+                screen = screen.copy(app = pkg)
+                base = base.copy(app = pkg)
+            }
+
+            val useRoutine = wantsCommentLikes
+            val resp: StepResponse? = if (useRoutine) {
+                val routineStep = CommentLikesRoutine.nextStep(
+                    tracker,
+                    if (screen.screenshotB64 != null) screen else base,
+                    screenState,
+                    svc.resources.displayMetrics,
+                )
+                if (routineStep != null) {
+                    onSay("Routine → ${routineStep.action}")
+                    routineStep
+                } else {
+                    onSay("Routine returned no step — stopping.")
+                    StepResponse(action = "fail", reason = "comment-likes routine exhausted")
                 }
+            } else {
+                fetchBrainStep(req)
+            }
+            if (resp == null) return false
 
             var finalResp = resp
 
-            if (finalResp.needsScreenshot && screen.screenshotB64.isNullOrBlank()) {
+            if (!useRoutine && finalResp.needsScreenshot && screen.screenshotB64.isNullOrBlank()) {
                 onSay("Brain requested screenshot — recapturing…")
                 val cap = ScreenCapture.captureForGrounding(
                     svc,
                     base,
-                    useSom = FridayPreferences.somEnabled(svc.applicationContext),
+                    useSom = false,
                 )
                 if (cap != null) {
                     screen = base.copy(screenshotB64 = cap.screenshotB64)
@@ -276,7 +308,7 @@ class AgentController(
 
             val outcome = handleStep(
                 svc, goal, step, finalResp, screen, history, last, wantsIg, wantsCommentLikes, stale,
-                reporter, fingerprint, intentResolver, memoryStore,
+                reporter, fingerprint, intentResolver, memoryStore, deviceId,
             )
             last = outcome.lastResult
             if (outcome.terminal != null) {
@@ -306,6 +338,7 @@ class AgentController(
         beforeFingerprint: String,
         intentResolver: IntentResolver,
         memoryStore: DeviceMemoryStore,
+        deviceId: String,
     ): StepOutcome {
         onSay("Step ${step + 1}: ${resp.action} (${screen.app.ifBlank { "unknown" }})")
         onProgress(
@@ -318,7 +351,9 @@ class AgentController(
         )
 
         resp.say?.let { text ->
-            if (text.isNotBlank()) voiceScope.launch { voice.speakFromBrain(brain, text) }
+            if (text.isNotBlank() && voice.speakEnabled) {
+                voiceScope.launch { voice.speakFromBrain(brain, text) }
+            }
         }
 
         onCheckpoint(
@@ -419,13 +454,14 @@ class AgentController(
         }
 
         var toExecute = resp
+        var groundingScreenshotB64: String? = null
         if (wantsCommentLikes) {
             val screenType = ScreenClassifier.classify(screen, svc.currentActivityClass()).screenType
             MotorPolicy.clampCommentLikes(resp, tracker.reelsTabOpened, screenType)?.let { toExecute = it }
         }
         if (isStuckEnteringReels(history, wantsCommentLikes)) {
             onSay("Stuck on home — full Reels entry recovery…")
-            val entry = ReelsEntry.enter(svc, memoryStore) { onSay(it) }
+            val entry = ReelsEntry.enter(svc, brain) { onSay(it) }
             tracker.reelsTabOpened = entry.reelsTabOpened
             history.add("reels_entry(recovery)")
             return StepOutcome(
@@ -437,10 +473,24 @@ class AgentController(
                     verified = if (entry.reelsTabOpened) "verified" else "unverified",
                 ),
             )
+        } else if (isStuckOnOpenReels(history, wantsCommentLikes, screen, svc)) {
+            onSay("open_reels loop — full Reels entry recovery…")
+            val entry = ReelsEntry.enter(svc, brain) { onSay(it) }
+            tracker.reelsTabOpened = entry.reelsTabOpened
+            history.add("reels_entry(open-reels-loop)")
+            return StepOutcome(
+                null,
+                LastResult(
+                    action = "navigate",
+                    ok = entry.ok,
+                    verified = if (entry.reelsTabOpened) "verified" else "unverified",
+                    error = if (entry.ok) null else "open_reels loop recovery incomplete",
+                ),
+            )
         } else if (isStuckOnWait(history, wantsCommentLikes, screen, svc)) {
             onSay("Wait loop on home — forcing Reels entry…")
             tracker.reelsTabOpened = false
-            val entry = ReelsEntry.enter(svc, memoryStore) { onSay(it) }
+            val entry = ReelsEntry.enter(svc, brain) { onSay(it) }
             tracker.reelsTabOpened = entry.reelsTabOpened
             history.add("reels_entry(wait-break)")
             return StepOutcome(
@@ -453,64 +503,82 @@ class AgentController(
             )
         } else if (resp.action == "intent") {
             var shot = screen.screenshotB64
-            var resolved = intentResolver.resolve(
-                resp, screen, ScreenClassifier.classify(screen, svc.currentActivityClass()), tracker, shot,
-            )
-            // If previous intent tap on the same anchor was unverified, force fresh
-            // grounding: dump memory hit, capture new screenshot, re-ground.
+            var shotW = 0
+            var shotH = 0
             val intentName = (resp.params["name"] as? JsonPrimitive)?.content?.lowercase().orEmpty()
-            val prevUnverified = last?.verified in setOf("failed", "unverified") &&
-                lastIntentUiKey != null && intentName in setOf("open_comments", "engage_comments")
-            if (prevUnverified && lastIntentReground < 2) {
-                onSay("Previous intent tap unverified — re-grounding via vision…")
-                val cap = ScreenCapture.captureForGrounding(
-                    svc,
-                    screen,
-                    useSom = FridayPreferences.somEnabled(svc.applicationContext),
+            if (wantsCommentLikes && intentName == "open_comments" &&
+                (anchorVerifyFails["comments_icon"] ?: 0) >= 4 &&
+                tracker.commentLikesPhase == CommentLikesRoutine.PHASE_ON_REELS
+            ) {
+                onSay("Comments icon stuck — skipping to next reel…")
+                anchorVerifyFails["comments_icon"] = 0
+                tracker.commentsSheetOpen = false
+                tracker.commentLikesPhase = CommentLikesRoutine.PHASE_ON_REELS
+                tracker.readyForNextReel = false
+                toExecute = StepResponse(
+                    action = "swipe",
+                    params = mapOf(
+                        "direction" to JsonPrimitive("up"),
+                        "zone" to JsonPrimitive("reels_rail"),
+                    ),
+                    reason = "vision stuck recovery — next reel",
                 )
-                if (cap != null) {
-                    shot = cap.screenshotB64
-                    resolved = intentResolver.resolve(
-                        resp,
-                        screen.copy(screenshotB64 = cap.screenshotB64),
-                        ScreenClassifier.classify(screen, svc.currentActivityClass()),
-                        tracker,
-                        screenshotB64 = cap.screenshotB64,
-                        somMarks = cap.somMarks,
-                        forceVision = true,
-                    )
-                    lastIntentReground += 1
-                }
-            } else if (resolved.needsScreenshot) {
-                onSay("Intent needs vision — grounding with Gemma…")
-                val cap = ScreenCapture.captureForGrounding(
-                    svc,
+                lastIntentUiKey = "comments_icon"
+            } else {
+                val prevUnverified = last?.verified in setOf("failed", "unverified") &&
+                    lastIntentUiKey in VisionMotor.REELS_ANCHORS
+                val regroundCap = 2
+                val needReground = (forceVisionRetry || prevUnverified) && lastIntentReground < regroundCap
+                var resolved = intentResolver.resolve(
+                    resp,
                     screen,
-                    useSom = FridayPreferences.somEnabled(svc.applicationContext),
+                    ScreenClassifier.classify(screen, svc.currentActivityClass()),
+                    tracker,
+                    shot,
+                    deviceId = deviceId,
+                    imageWidth = shotW,
+                    imageHeight = shotH,
                 )
-                if (cap != null) {
-                    shot = cap.screenshotB64
-                    resolved = intentResolver.resolve(
-                        resp,
-                        screen.copy(screenshotB64 = cap.screenshotB64),
-                        ScreenClassifier.classify(screen, svc.currentActivityClass()),
-                        tracker,
-                        screenshotB64 = cap.screenshotB64,
-                        somMarks = cap.somMarks,
-                    )
+                if (resolved.needsScreenshot || needReground) {
+                    onSay("Vision grounding for $intentName (Ollama may take ~30s)…")
+                    val cap = ScreenCapture.captureForGrounding(svc, screen, useSom = false)
+                    if (cap != null) {
+                        shot = cap.screenshotB64
+                        shotW = cap.imageWidth
+                        shotH = cap.imageHeight
+                        groundingScreenshotB64 = shot
+                        resolved = intentResolver.resolve(
+                            resp,
+                            screen.copy(screenshotB64 = cap.screenshotB64),
+                            ScreenClassifier.classify(screen, svc.currentActivityClass()),
+                            tracker,
+                            screenshotB64 = cap.screenshotB64,
+                            deviceId = deviceId,
+                            imageWidth = shotW,
+                            imageHeight = shotH,
+                        )
+                        if (needReground) lastIntentReground += 1
+                    }
                 }
+                toExecute = resolved.response.copy(
+                    say = resp.say ?: resolved.response.say,
+                    reason = resp.reason.ifBlank { resolved.response.reason },
+                )
+                lastIntentUiKey = resolved.uiKey
+                val failStreak = resolved.uiKey?.let { anchorVerifyFails[it] ?: 0 } ?: 0
+                if (failStreak >= 2 && toExecute.action in setOf("tap", "like_comment")) {
+                    toExecute = jitterVisionTap(toExecute, failStreak)
+                    onSay("Retry with offset (fail streak $failStreak)…")
+                }
+                if (resolved.needsScreenshot) {
+                    onSay("Grounding failed — need clearer screenshot.")
+                    history.add("intent(ground-failed)")
+                    return StepOutcome(null, LastResult(action = "intent", ok = false, error = "grounding_failed"))
+                }
+                val gx = (toExecute.params["x"] as? JsonPrimitive)?.content
+                val gy = (toExecute.params["y"] as? JsonPrimitive)?.content
+                onSay("Intent → ${toExecute.action} @${resolved.uiKey ?: "-"} ($gx,$gy)")
             }
-            toExecute = resolved.response.copy(
-                say = resp.say ?: resolved.response.say,
-                reason = resp.reason.ifBlank { resolved.response.reason },
-            )
-            lastIntentUiKey = resolved.uiKey
-            if (resolved.needsScreenshot) {
-                onSay("Grounding failed — need clearer screenshot.")
-                history.add("intent(ground-failed)")
-                return StepOutcome(null, LastResult(action = "intent", ok = false, error = "grounding_failed"))
-            }
-            onSay("Intent → ${toExecute.action} @${resolved.uiKey ?: "-"}")
         } else {
             lastIntentUiKey = null
         }
@@ -546,68 +614,118 @@ class AgentController(
 
         history.add(finalAction)
         onProgress(AgentProgress.StepExecuted(step, finalAction, ok = finalOk, error = finalError))
-        if (finalOk) {
-            tracker.record(finalAction, toExecute.params)
-            consecutiveFailures = 0
-            emitBudget()
-        } else {
-            consecutiveFailures++
-            onSay("$finalAction failed: $finalError")
-        }
 
         if (toExecute.action == "open_app") delay(4000)
         delay(humanDelayMs(finalAction))
 
         val afterScreen = svc.readScreen()
+        val afterFingerprint = ScreenValidator.fingerprint(afterScreen)
+        val afterState = ScreenClassifier.classify(afterScreen, svc.currentActivityClass())
+        val verification = OutcomeVerifier.verify(
+            finalAction,
+            finalOk,
+            beforeScreen,
+            afterScreen,
+            beforeFingerprint,
+            afterFingerprint,
+            toExecute.params,
+            svc.currentActivityClass(),
+        )
+
+        val onCommentsSheet = afterState.screenType == "comments_sheet"
+        val countsForBudget = !wantsCommentLikes ||
+            verification.status == "verified" ||
+            finalAction !in setOf("tap", "like_comment") ||
+            (finalOk && onCommentsSheet && finalAction in setOf("tap", "like_comment"))
+        if (finalOk && countsForBudget) {
+            tracker.record(finalAction, toExecute.params)
+            consecutiveFailures = 0
+            emitBudget()
+        } else if (finalOk) {
+            onSay("$finalAction sent but screen did not confirm — not counting progress.")
+            consecutiveFailures++
+        } else {
+            consecutiveFailures++
+            onSay("$finalAction failed: $finalError")
+        }
+
         if (finalOk && wantsCommentLikes) {
-            val afterState = ScreenClassifier.classify(afterScreen, svc.currentActivityClass())
             when (finalAction) {
                 "tap" -> {
-                    if (toExecute.reason.contains("open_comments") || toExecute.reason.contains("vision ground")) {
-                        when {
-                            afterState.screenType == "comments_sheet" -> tracker.commentsSheetOpen = true
-                            ReelsTargetFinder.isAudioBrowser(afterScreen) -> {
-                                onSay("Opened audio by mistake — going back.")
-                                svc.executor.execute(
-                                    StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
-                                )
-                                tracker.commentsSheetOpen = false
-                            }
+                    when {
+                        ReelsTargetFinder.isAudioBrowser(afterScreen) -> {
+                            onSay("Opened audio by mistake — clearing memory and going back.")
+                            memoryStore.invalidate("comments_icon")
+                            forceVisionRetry = true
+                            tracker.commentsSheetOpen = false
+                            tracker.commentLikesPhase = CommentLikesRoutine.PHASE_ON_REELS
+                            svc.executor.execute(
+                                StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
+                            )
                         }
-                    } else if (afterState.screenType == "comments_sheet") {
-                        tracker.commentsSheetOpen = true
+                        onCommentsSheet -> {
+                            tracker.commentsSheetOpen = true
+                            CommentLikesRoutine.onActionCompleted(tracker, "tap", ok = true)
+                            forceVisionRetry = false
+                            lastIntentReground = 0
+                        }
                     }
                 }
                 "like_comment" -> {
-                    if (afterState.screenType == "comments_sheet") {
+                    if (onCommentsSheet) {
                         tracker.commentsSheetOpen = true
+                        tracker.commentLikesPhase = CommentLikesRoutine.PHASE_IN_COMMENTS
                     }
                 }
-                "press" -> tracker.commentsSheetOpen = false
+                "scroll" -> {
+                    val zone = (toExecute.params["zone"] as? JsonPrimitive)?.content?.lowercase()
+                    if (zone == "comments_sheet") {
+                        tracker.commentsSheetOpen = true
+                        tracker.commentLikesPhase = CommentLikesRoutine.PHASE_IN_COMMENTS
+                    }
+                }
+                "press" -> {
+                    val key = (toExecute.params["key"] as? JsonPrimitive)?.content?.lowercase()
+                    if (key == "back") tracker.commentsSheetOpen = false
+                }
                 "swipe" -> {
                     val dir = (toExecute.params["direction"] as? JsonPrimitive)?.content
                     if (dir == "left" && finalOk) {
                         tracker.reelsTabOpened = ScreenClassifier.likelyReelsSurface(afterState, afterScreen)
                     }
                 }
-                "navigate" -> {
+                "navigate", "open_reels" -> {
                     val tab = (toExecute.params["tab"] as? JsonPrimitive)?.content?.lowercase()
-                    if (tab == "reels" && finalOk) {
+                    if ((tab == "reels" || finalAction == "open_reels") && finalOk) {
                         tracker.reelsTabOpened = ScreenClassifier.likelyReelsSurface(afterState, afterScreen)
                     }
                 }
             }
         }
-        val afterFingerprint = ScreenValidator.fingerprint(afterScreen)
-        val verification = OutcomeVerifier.verify(
-            finalAction, finalOk, beforeScreen, afterScreen, beforeFingerprint, afterFingerprint,
+
+        if (wantsCommentLikes && lastIntentUiKey != null && finalAction in setOf("tap", "like_comment")) {
+            if (verification.status == "verified") {
+                anchorVerifyFails[lastIntentUiKey!!] = 0
+                forceVisionRetry = false
+            } else if (finalOk && (onCommentsSheet || lastIntentUiKey == "nav_reels")) {
+                anchorVerifyFails[lastIntentUiKey!!] = 0
+                forceVisionRetry = false
+            } else {
+                anchorVerifyFails[lastIntentUiKey!!] = (anchorVerifyFails[lastIntentUiKey] ?: 0) + 1
+                forceVisionRetry = true
+            }
+        }
+
+        val enrichedParams = toExecute.params + mapOf(
+            "screen_width" to JsonPrimitive(svc.resources.displayMetrics.widthPixels),
+            "screen_height" to JsonPrimitive(svc.resources.displayMetrics.heightPixels),
         )
         reporter.report(
             sessionId = sessionId,
             step = step,
             goal = goal,
             action = finalAction,
-            params = toExecute.params,
+            params = enrichedParams,
             executorOk = finalOk,
             verification = verification,
             before = beforeScreen,
@@ -615,12 +733,14 @@ class AgentController(
             beforeFp = beforeFingerprint,
             afterFp = afterFingerprint,
             error = finalError,
+            screenshotB64 = groundingScreenshotB64 ?: beforeScreen.screenshotB64,
         )
         if (verification.status == "verified") lastIntentReground = 0
         onSay(
             "step=${step + 1} action=$finalAction verify=${verification.status} " +
-                "screen=${ScreenClassifier.classify(afterScreen, svc.currentActivityClass()).screenType} " +
-                "reels=${if (tracker.reelsTabOpened) 1 else 0} ui_key=${lastIntentUiKey ?: "-"}"
+                "screen=${afterState.screenType} " +
+                "reels=${if (tracker.reelsTabOpened) 1 else 0} phase=${tracker.commentLikesPhase} " +
+                "ui_key=${lastIntentUiKey ?: "-"}"
         )
 
         return StepOutcome(
@@ -636,7 +756,9 @@ class AgentController(
     }
 
     private fun syncReelsTabState(screen: com.miguelbits.fridayugc.model.Screen, state: ScreenState) {
-        if (ScreenClassifier.hasHomeFeedTabs(screen) || state.screenType == "home_feed") {
+        if (ScreenClassifier.hasHomeFeedTabs(screen) ||
+            (state.screenType == "home_feed" && state.confidence >= 0.8f)
+        ) {
             tracker.reelsTabOpened = false
             return
         }
@@ -648,9 +770,22 @@ class AgentController(
     private fun isStuckEnteringReels(history: List<String>, wantsCommentLikes: Boolean): Boolean {
         if (!wantsCommentLikes || history.size < 4) return false
         val tail = history.takeLast(4)
-        val idle = setOf("wait", "navigate", "intent(ground-failed)")
+        val idle = setOf("wait", "navigate", "intent(ground-failed)", "open_reels")
         return tail.count { it in idle || it.startsWith("navigate") || it.startsWith("reels_entry") } >= 3 &&
             !tracker.reelsTabOpened
+    }
+
+    private fun isStuckOnOpenReels(
+        history: List<String>,
+        wantsCommentLikes: Boolean,
+        screen: com.miguelbits.fridayugc.model.Screen,
+        svc: FridayAccessibilityService,
+    ): Boolean {
+        if (!wantsCommentLikes || history.size < 3) return false
+        val tail = history.takeLast(5)
+        if (tail.count { it == "open_reels" } < 3) return false
+        val state = ScreenClassifier.classify(screen, svc.currentActivityClass())
+        return !ScreenClassifier.likelyReelsSurface(state, screen)
     }
 
     private fun isStuckOnWait(
@@ -677,5 +812,20 @@ class AgentController(
         "scroll", "swipe", "view_story" -> Random.nextLong(1200, 3500)
         "navigate" -> Random.nextLong(800, 2000)
         else -> Random.nextLong(500, 1800)
+    }
+
+    private fun jitterVisionTap(step: StepResponse, failStreak: Int): StepResponse {
+        val x = (step.params["x"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return step
+        val y = (step.params["y"] as? JsonPrimitive)?.content?.toIntOrNull() ?: return step
+        val spread = 18 * failStreak.coerceAtMost(4)
+        val nx = (x + Random.nextInt(-spread, spread + 1)).coerceAtLeast(0)
+        val ny = (y + Random.nextInt(-spread, spread + 1)).coerceAtLeast(0)
+        return step.copy(
+            params = step.params + mapOf(
+                "x" to JsonPrimitive(nx),
+                "y" to JsonPrimitive(ny),
+            ),
+            reason = "${step.reason} (jitter retry)",
+        )
     }
 }

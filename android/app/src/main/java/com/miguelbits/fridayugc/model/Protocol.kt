@@ -197,6 +197,7 @@ data class GroundRequest(
     @SerialName("row_index") val rowIndex: Int = 0,
     @SerialName("som_marks") val somMarks: List<SomMark> = emptyList(),
     @SerialName("use_som") val useSom: Boolean = true,
+    @SerialName("device_id") val deviceId: String = "",
 )
 
 @Serializable
@@ -405,6 +406,8 @@ data class VerifiedStepRecord(
     val error: String? = null,
     @SerialName("ig_version") val igVersion: String = "",
     val params: Map<String, String> = emptyMap(),
+    @SerialName("screenshot_b64") val screenshotB64: String? = null,
+    val anchor: String = "",
 )
 
 @Serializable

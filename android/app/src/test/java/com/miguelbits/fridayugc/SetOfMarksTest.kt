@@ -1,6 +1,5 @@
 package com.miguelbits.fridayugc
 
-import android.graphics.Bitmap
 import com.miguelbits.fridayugc.model.Screen
 import com.miguelbits.fridayugc.model.ScreenElement
 import org.junit.Assert.assertEquals
@@ -11,7 +10,6 @@ class SetOfMarksTest {
 
     @Test
     fun annotate_marks_clickable_elements() {
-        val bmp = Bitmap.createBitmap(540, 1200, Bitmap.Config.ARGB_8888)
         val screen = Screen(
             app = "com.instagram.android",
             activity = "Home",
@@ -20,10 +18,15 @@ class SetOfMarksTest {
                 ScreenElement(id = 1, text = "Like", clickable = true, x = 480, y = 600, w = 40, h = 40),
             ),
         )
-        val result = SetOfMarks.annotate(bmp, screen, displayWidth = 1080, displayHeight = 2400)
-        assertEquals(2, result.marks.size)
-        assertTrue(result.marks[0].markId >= 1)
-        result.bitmap.recycle()
-        bmp.recycle()
+        val candidates = SetOfMarks.clickableCandidates(screen)
+        val marks = SetOfMarks.computeMarks(
+            candidates,
+            scaleX = 540f / 1080,
+            scaleY = 1200f / 2400,
+        )
+        assertEquals(2, marks.size)
+        assertTrue(marks[0].markId >= 1)
+        assertEquals("Reels", marks[0].text)
+        assertEquals(0, marks[0].elementId)
     }
 }

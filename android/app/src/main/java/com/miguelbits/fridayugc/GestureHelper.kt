@@ -22,6 +22,15 @@ object GestureHelper {
         return dispatch(service, GestureDescription.Builder().addStroke(stroke).build())
     }
 
+    /** Tight tap for rail icons — avoids jitter onto audio/share below. */
+    suspend fun tapPrecise(service: AccessibilityService, x: Int, y: Int): Boolean {
+        val jx = x + Random.nextInt(-3, 4)
+        val jy = y + Random.nextInt(-3, 4)
+        val path = Path().apply { moveTo(jx.toFloat(), jy.toFloat()) }
+        val stroke = GestureDescription.StrokeDescription(path, 0, Random.nextLong(50, 80))
+        return dispatch(service, GestureDescription.Builder().addStroke(stroke).build())
+    }
+
     suspend fun swipe(
         service: AccessibilityService,
         x1: Float,
@@ -50,14 +59,24 @@ object GestureHelper {
         }
     }
 
+    /** Finger swipes up inside the comments sheet to load more comment rows. */
+    suspend fun scrollCommentsSheet(service: AccessibilityService): Boolean {
+        val dm = service.resources.displayMetrics
+        val x = dm.widthPixels * (0.45f + Random.nextFloat() * 0.1f)
+        val y1 = dm.heightPixels * (0.78f + Random.nextFloat() * 0.04f)
+        val y2 = dm.heightPixels * (0.58f + Random.nextFloat() * 0.04f)
+        return swipe(service, x, y1, x, y2, Random.nextLong(280, 420))
+    }
+
     /**
      * Vertical swipe on the Reels right rail — avoids carousel / post media in the center.
      */
     suspend fun swipeReelsNext(service: AccessibilityService): Boolean {
         val dm = service.resources.displayMetrics
-        val x = dm.widthPixels * (0.90f + Random.nextFloat() * 0.04f)
-        val y1 = dm.heightPixels * (0.68f + Random.nextFloat() * 0.06f)
-        val y2 = dm.heightPixels * (0.25f + Random.nextFloat() * 0.06f)
+        // Swipe through the reel body — never start at 0.68+ (audio disc on the right rail).
+        val x = dm.widthPixels * (0.82f + Random.nextFloat() * 0.06f)
+        val y1 = dm.heightPixels * (0.52f + Random.nextFloat() * 0.06f)
+        val y2 = dm.heightPixels * (0.22f + Random.nextFloat() * 0.06f)
         return swipe(service, x, y1, x, y2, Random.nextLong(320, 480))
     }
 
@@ -65,6 +84,29 @@ object GestureHelper {
      * Horizontal pager swipe through the **center band** (avoids left-edge back gesture + carousels).
      * Finger moves left → next tab to the right (Home → Reels on Instagram).
      */
+    /** Fallback when the a11y tree has no bottom-nav labels (icon-only bar). */
+    fun bottomNavCoordinates(service: AccessibilityService, tab: String): Pair<Int, Int>? {
+        val dm = service.resources.displayMetrics
+        val w = dm.widthPixels
+        val h = dm.heightPixels
+        val y = (h * 0.935f).toInt()
+        val slots = when (tab.lowercase()) {
+            "home" -> 0
+            "reels" -> 1
+            "create" -> 2
+            "search" -> 3
+            "profile" -> 4
+            else -> return null
+        }
+        val x = (w * (0.10f + slots * 0.20f)).toInt()
+        return x to y
+    }
+
+    suspend fun tapBottomNavTab(service: AccessibilityService, tab: String): Boolean {
+        val (x, y) = bottomNavCoordinates(service, tab) ?: return false
+        return tapHuman(service, x, y)
+    }
+
     suspend fun swipeFeedPager(service: AccessibilityService, direction: String): Boolean {
         val dm = service.resources.displayMetrics
         val w = dm.widthPixels.toFloat()

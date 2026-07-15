@@ -84,6 +84,7 @@ class Settings(BaseSettings):
 
     # --- TTS (OmniVoice on AWS GPU) ---
     tts_provider: str = "mock"  # mock | omnivoice
+    voice_enabled: bool = False  # FRIDAY_VOICE_ENABLED — /voice/speak + phone playback
     omnivoice_url: str = "http://127.0.0.1:8001"
     omnivoice_instruct: str = "female, low pitch, calm, warm, american accent"
 

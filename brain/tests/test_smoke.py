@@ -132,11 +132,21 @@ def test_curate_from_gallery():
     assert "strategy_notes" in data
 
 
-def test_voice_speak_returns_wav():
+def test_voice_speak_disabled_by_default():
+    r = client.post("/voice/speak", json={"text": "Scrolling the feed now."}, headers=AUTH)
+    assert r.status_code == 204
+
+
+def test_voice_speak_returns_wav_when_enabled(monkeypatch):
+    monkeypatch.setenv("FRIDAY_VOICE_ENABLED", "true")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
     r = client.post("/voice/speak", json={"text": "Scrolling the feed now."}, headers=AUTH)
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("audio/")
     assert len(r.content) > 44  # WAV header + frames
+    get_settings.cache_clear()
 
 
 def test_inbox_evaluate_selective():
@@ -183,8 +193,14 @@ def test_ugc_routine_full_session():
     assert len(data["checklist"]) >= 5
 
 
-def test_inbox_record_and_cap():
-    client.post(
+def test_inbox_record_and_cap(tmp_path, monkeypatch):
+    ledger = tmp_path / "inbox_ledger.json"
+    monkeypatch.setenv("FRIDAY_INBOX_LEDGER_PATH", str(ledger))
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+
+    r1 = client.post(
         "/inbox/record",
         json={
             "message_id": "r1",
@@ -194,7 +210,10 @@ def test_inbox_record_and_cap():
         },
         headers=AUTH,
     )
-    client.post(
+    assert r1.status_code == 200
+    assert r1.json()["replies_today_for_user"] == 1
+
+    r2 = client.post(
         "/inbox/record",
         json={
             "message_id": "r2",
@@ -204,6 +223,9 @@ def test_inbox_record_and_cap():
         },
         headers=AUTH,
     )
+    assert r2.status_code == 200
+    assert r2.json()["replies_today_for_user"] == 2
+
     r = client.post(
         "/inbox/evaluate",
         json={
@@ -213,7 +235,9 @@ def test_inbox_record_and_cap():
         },
         headers=AUTH,
     )
-    assert r.json()["decisions"][0]["action"] == "skip"
+    decision = r.json()["decisions"][0]
+    assert decision["action"] == "skip"
+    assert "daily_cap" in decision["reason"]
 
 
 def test_safety_audit_flags_device_wording():

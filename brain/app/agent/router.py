@@ -265,6 +265,31 @@ async def decide_legacy(req: StepRequest, persona_key: str = "lorena") -> StepRe
             )
             return kick
 
+    # Proactive choreography on reels — don't rely on LLM to pick open_comments / like_comment.
+    if (
+        goal_wants_comment_likes(req.goal)
+        and req.mode == "full"
+        and on_reels_surface(state, req.session_context or {}, req.screen)
+    ):
+        proactive = comment_likes_like_hearts(req, state) or comment_likes_kickstart(req, state)
+        if proactive is not None:
+            proactive = apply_guards(req, proactive)
+            operator.record_step(
+                session_id=req.session_id,
+                step=req.step,
+                action=proactive,
+                response=proactive.model_dump(),
+                session_context=req.session_context,
+            )
+            _record_step(
+                req,
+                proactive,
+                latency_ms=0.0,
+                guard_triggered=False,
+                guard_reason="playbook_proactive",
+            )
+            return proactive
+
     persona = get_persona(persona_key)
     user = build_step_user_prompt(req)
     shot = (req.screen.screenshot_b64 or "").strip()

@@ -9,6 +9,12 @@ import com.miguelbits.fridayugc.model.ScreenState
  */
 object ScreenClassifier {
 
+    fun hasHomeFeedTabs(screen: Screen): Boolean =
+        screen.elements.any {
+            val t = it.text.lowercase()
+            t.contains("for you") || t.contains("following")
+        }
+
     fun classify(screen: Screen, activityClass: String = ""): ScreenState {
         val pkg = screen.app.lowercase()
         val texts = screen.elements.map { it.text.lowercase() }
@@ -59,20 +65,6 @@ object ScreenClassifier {
             )
         }
 
-        if (activityLower.contains("clips") || activityLower.contains("reel")) {
-            signals.add("activity suggests reels")
-            return ScreenState(
-                appPackage = screen.app,
-                activityClass = activityClass,
-                screenType = "reels_viewer",
-                selectedTab = "reels",
-                confidence = 0.92f,
-                elementCount = screen.elements.size,
-                signals = signals,
-                needsVision = screen.elements.size < 8,
-            )
-        }
-
         if (texts.any {
             it.contains("add a comment") || it.contains("add comment") ||
                 (it.contains("view") && it.contains("comment")) ||
@@ -88,6 +80,20 @@ object ScreenClassifier {
                 elementCount = screen.elements.size,
                 signals = signals,
                 needsVision = false,
+            )
+        }
+
+        if (activityLower.contains("clips") || activityLower.contains("reel")) {
+            signals.add("activity suggests reels")
+            return ScreenState(
+                appPackage = screen.app,
+                activityClass = activityClass,
+                screenType = "reels_viewer",
+                selectedTab = "reels",
+                confidence = 0.92f,
+                elementCount = screen.elements.size,
+                signals = signals,
+                needsVision = screen.elements.size < 8,
             )
         }
 
@@ -271,15 +277,16 @@ object ScreenClassifier {
         )
     }
 
-    /** Heuristic when classifier is blind but swipe-left already landed on Reels. */
+    /** Confirmed Reels surface — never infer from sparse scrollables alone (false-positive on home). */
     fun likelyReelsSurface(state: ScreenState, screen: Screen): Boolean {
-        if (state.screenType == "reels_viewer") return true
+        if (hasHomeFeedTabs(screen)) return false
+        if (state.screenType == "reels_viewer" || state.screenType == "comments_sheet") return true
         val texts = screen.elements.map { it.text.lowercase() }
-        val hasFeedTabs = texts.any { it.contains("for you") || it.contains("following") }
-        if (hasFeedTabs) return false
         val reelsSelected = texts.any { it.contains("reels") && it.contains("selected") }
-        val bigScroll = screen.elements.any { it.scrollable && it.h > 400 && it.w > 200 }
-        return reelsSelected || (bigScroll && screen.elements.size < 22)
+        val activityLower = state.activityClass.lowercase()
+        val activityReels = activityLower.contains("clips") ||
+            (activityLower.contains("reel") && !activityLower.contains("profile"))
+        return reelsSelected || activityReels
     }
 
     private fun inferTab(texts: List<String>, signals: MutableList<String>): String {

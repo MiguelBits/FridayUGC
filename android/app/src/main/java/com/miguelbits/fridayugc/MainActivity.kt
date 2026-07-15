@@ -282,15 +282,15 @@ class MainActivity : AppCompatActivity() {
         goal = (
             "Open Instagram Reels tab. Process exactly 10 reels. " +
                 "For EACH reel: (1) tap the comments icon to open the comments sheet, " +
-                "(2) like exactly 5 comments using like_comment on comment heart buttons — " +
+                "(2) like exactly 3 comments using like_comment on comment heart buttons — " +
                 "do NOT post new comments, (3) press back to return to the reel, " +
                 "(4) swipe up to the next reel. " +
-                "Repeat until 10 reels done (50 comment likes total). Then done with summary."
+                "Repeat until 10 reels done (30 comment likes total). Then done with summary."
             ),
         sessionContext = SessionBudget(
             reelsMax = 10,
-            commentLikesMax = 50,
-            commentLikesPerReel = 5,
+            commentLikesMax = 30,
+            commentLikesPerReel = 3,
             commentsMax = 0,
             likesMax = 0,
             phase = "reels_comment_likes",
@@ -302,42 +302,26 @@ class MainActivity : AppCompatActivity() {
             status.text = "Turn off read-only — this routine likes comments on reels."
             return
         }
-        startForegroundService(Intent(this, FridayForegroundService::class.java))
         lifecycleScope.launch {
             status.text = "Building reels comment-likes routine…"
-            moveTaskToBack(true)
-            delay(600)
             runCatching {
                 val routine = runCatching {
                     brain.routine(
                         RoutineRequest(routine = "reels_comment_likes", durationMinutes = 30, mode = "full"),
                     )
                 }.getOrElse { err ->
-                    runOnUiThread {
-                        status.text = "Brain routine stale (${err.message}) — using local plan."
-                    }
+                    status.text = "Brain routine stale (${err.message}) — using local plan."
                     localReelsCommentLikesRoutine()
                 }
                 FridayPreferences.saveGoal(this@MainActivity, routine.goal)
                 runOnUiThread { goalInput.setText(routine.goal) }
-                voice.speakFromBrain(
-                    brain,
-                    "Starting reels comment likes. Ten reels, five comment hearts each.",
+                FridayForegroundService.runCommentLikesRoutine(
+                    this@MainActivity,
+                    routine.goal,
+                    routine.sessionContext,
                 )
-                val controller = AgentController(
-                    brain = brain,
-                    voice = voice,
-                    mode = "full",
-                    initialBudget = routine.sessionContext,
-                    maxSteps = 120,
-                    taskKind = "reels_comment_likes",
-                    onSay = { msg ->
-                        runOnUiThread { status.text = msg }
-                    },
-                    onProgress = AgentNotificationHub::apply,
-                    onApproval = { resp -> confirm(resp.action, resp.reason) },
-                )
-                controller.runGoal(routine.goal)
+                status.text = "Session running — watch notification (Ollama grounding ~30s per tap)."
+                moveTaskToBack(true)
             }.onFailure {
                 runOnUiThread { status.text = "Routine failed: ${it.message}" }
             }

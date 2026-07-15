@@ -205,15 +205,18 @@ def resolve_state(req: StepRequest) -> ScreenState:
             }
         )
     if opened == 1 and state.screen_type in {"home_feed", "unknown"} and not has_home_feed_tabs(req.screen):
-        signals = list(state.signals) + ["reels_tab_opened — override to reels_viewer"]
-        return state.model_copy(
-            update={
-                "screen_type": "reels_viewer",
-                "selected_tab": "reels",
-                "confidence": max(state.confidence, 0.78),
-                "signals": signals,
-            }
-        )
+        activity = (state.activity_class or "").lower()
+        strong_reels = "clips" in activity or ("reel" in activity and "profile" not in activity)
+        if strong_reels and state.screen_type != "home_feed":
+            signals = list(state.signals) + ["reels_tab_opened — override to reels_viewer"]
+            return state.model_copy(
+                update={
+                    "screen_type": "reels_viewer",
+                    "selected_tab": "reels",
+                    "confidence": max(state.confidence, 0.78),
+                    "signals": signals,
+                }
+            )
     try:
         comments_open = int(ctx.get("comments_sheet_open", 0))
     except (TypeError, ValueError):

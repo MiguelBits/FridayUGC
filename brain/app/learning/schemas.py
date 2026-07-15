@@ -26,6 +26,8 @@ class VerifiedStepRecord(BaseModel):
     ig_version: str = ""
     params: dict[str, Any] = Field(default_factory=dict)
     screenshot_path: str | None = None
+    screenshot_b64: str | None = None
+    anchor: str = ""
 
 
 class TrajectoryBatchRequest(BaseModel):

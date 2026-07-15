@@ -113,6 +113,7 @@ async def health() -> dict:
         "model_ready": model.get("ready", False),
         "model_detail": model.get("detail", ""),
         "tts": s.tts_provider,
+        "voice_enabled": s.voice_enabled,
         "gallery": s.gallery_backend,
         "vision": s.vision_enabled,
         "vision_model": s.vision_model,
@@ -424,6 +425,13 @@ async def learning_novel_plans(device_id: str | None = None, limit: int = 20) ->
     return LearningService().list_novel_plans(device_id=device_id, limit=min(limit, 100))
 
 
+@app.get("/learning/export-grounding", dependencies=[Depends(require_token)])
+async def learning_export_grounding(anchor: str | None = None, limit: int = 1000) -> dict:
+    """Export verified (screenshot, anchor, point) rows for offline fine-tune (Layer C)."""
+    rows = LearningService().export_grounding_dataset(anchor=anchor, limit=min(limit, 5000))
+    return {"count": len(rows), "rows": rows}
+
+
 @app.get("/content/archetypes", dependencies=[Depends(require_token)])
 async def content_archetypes() -> dict:
     items = load_archetypes()
@@ -486,6 +494,8 @@ async def voice(req: VoiceRequest) -> VoiceResponse:
 @app.post("/voice/speak", dependencies=[Depends(require_token)])
 async def voice_speak(req: SpeakRequest) -> Response:
     """High-quality TTS via OmniVoice (WAV). Pass raw text or let Gemma draft via situation."""
+    if not get_settings().voice_enabled:
+        return Response(status_code=204)
     if req.situation:
         vr = await voice_reply(VoiceRequest(user_text=req.text, situation=req.situation))
         spoken = vr.reply

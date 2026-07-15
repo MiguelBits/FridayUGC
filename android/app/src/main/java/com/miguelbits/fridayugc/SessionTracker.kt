@@ -30,6 +30,8 @@ class SessionTracker {
     var commentsSheetOpen = false
     var commentLikesPhase: String = CommentLikesRoutine.PHASE_ON_REELS
     var readyForNextReel = false
+    var commentLikesSinceScroll = 0
+    var commentSheetScrolls = 0
 
     fun applyFromBudget(budget: SessionBudget) {
         likesMax = budget.likesMax
@@ -71,6 +73,8 @@ class SessionTracker {
         commentsSheetOpen = intOf("comments_sheet_open", if (commentsSheetOpen) 1 else 0) == 1
         commentLikesPhase = (ctx["comment_likes_phase"] as? JsonPrimitive)?.content ?: commentLikesPhase
         readyForNextReel = intOf("ready_for_next_reel", if (readyForNextReel) 1 else 0) == 1
+        commentLikesSinceScroll = intOf("comment_likes_since_scroll", commentLikesSinceScroll)
+        commentSheetScrolls = intOf("comment_sheet_scrolls", commentSheetScrolls)
     }
 
     fun toContext(): Map<String, JsonElement> = mapOf(
@@ -98,6 +102,8 @@ class SessionTracker {
         "comments_sheet_open" to JsonPrimitive(if (commentsSheetOpen) 1 else 0),
         "comment_likes_phase" to JsonPrimitive(commentLikesPhase),
         "ready_for_next_reel" to JsonPrimitive(if (readyForNextReel) 1 else 0),
+        "comment_likes_since_scroll" to JsonPrimitive(commentLikesSinceScroll),
+        "comment_sheet_scrolls" to JsonPrimitive(commentSheetScrolls),
     )
 
     fun record(action: String, params: Map<String, JsonElement> = emptyMap()) {
@@ -106,6 +112,7 @@ class SessionTracker {
             "like_comment" -> {
                 commentLikesUsed++
                 commentLikesThisReel++
+                if (phase == "reels_comment_likes") commentLikesSinceScroll++
             }
             "like_story" -> storyLikesUsed++
             "comment" -> commentsUsed++
@@ -121,22 +128,36 @@ class SessionTracker {
             "press" -> {
                 val key = (params["key"] as? JsonPrimitive)?.content?.lowercase()
                 if (key == "back" && phase == "reels_comment_likes") {
-                    CommentLikesRoutine.onActionCompleted(this, "press", ok = true)
+                    CommentLikesRoutine.onActionCompleted(this, "press", ok = true, params)
                 } else if (key == "back") {
                     commentLikesThisReel = 0
+                    commentLikesSinceScroll = 0
+                    commentSheetScrolls = 0
                     commentsSheetOpen = false
+                }
+            }
+            "scroll" -> {
+                val zone = (params["zone"] as? JsonPrimitive)?.content?.lowercase()
+                if (phase == "reels_comment_likes" && zone == "comments_sheet") {
+                    CommentLikesRoutine.onActionCompleted(this, "scroll", ok = true, params)
                 }
             }
             "swipe" -> {
                 val dir = (params["direction"] as? JsonPrimitive)?.content?.lowercase()
+                val zone = (params["zone"] as? JsonPrimitive)?.content?.lowercase()
                 if (dir == "left" && phase == "reels_comment_likes") {
                     // reelsTabOpened is set in AgentController after surface verification.
                 }
-                reelsScrolled++
-                if (phase == "reels_comment_likes") {
-                    CommentLikesRoutine.onActionCompleted(this, "swipe", ok = true)
+                if (phase == "reels_comment_likes" && zone == "reels_rail") {
+                    reelsScrolled++
+                    CommentLikesRoutine.onActionCompleted(this, "swipe", ok = true, params)
+                } else if (phase == "reels_comment_likes") {
+                    // ignore non-rail swipes while in comment-likes (e.g. accidental)
                 } else {
+                    reelsScrolled++
                     commentLikesThisReel = 0
+                    commentLikesSinceScroll = 0
+                    commentSheetScrolls = 0
                 }
             }
         }

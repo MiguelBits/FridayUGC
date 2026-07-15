@@ -70,6 +70,18 @@ class ScreenClassifierTest {
     }
 
     @Test
+    fun sparseScrollableAloneIsNotLikelyReels() {
+        val screen = Screen(
+            app = "com.instagram.android",
+            elements = listOf(
+                ScreenElement(id = 0, role = "scrollable", scrollable = true, w = 400, h = 800, y = 200),
+            ),
+        )
+        val state = ScreenClassifier.classify(screen)
+        assertFalse(ScreenClassifier.likelyReelsSurface(state, screen))
+    }
+
+    @Test
     fun story_viewer_from_activity() {
         val screen = Screen(app = "com.instagram.android", elements = emptyList())
         val state = ScreenClassifier.classify(screen, activityClass = "com.instagram.story.viewer.StoryViewerActivity")

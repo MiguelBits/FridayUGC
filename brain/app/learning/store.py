@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -7,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import get_settings
+from .grounding_examples import GroundingExample
 from .schemas import (
     DeviceMemoryEntry,
     EvalFailureCase,
@@ -89,6 +91,20 @@ class LearningStore:
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_novel_device ON novel_plans(device_id);
+                CREATE TABLE IF NOT EXISTS grounding_examples (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_id TEXT NOT NULL,
+                    anchor TEXT NOT NULL,
+                    x INTEGER NOT NULL,
+                    y INTEGER NOT NULL,
+                    screen_width INTEGER NOT NULL,
+                    screen_height INTEGER NOT NULL,
+                    screenshot_path TEXT NOT NULL,
+                    ig_version TEXT NOT NULL,
+                    verified TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_grounding_anchor ON grounding_examples(anchor, device_id);
                 """
             )
 
@@ -96,6 +112,7 @@ class LearningStore:
         failures = 0
         with self._conn() as conn:
             for step in steps:
+                screenshot_path = self._persist_screenshot(step)
                 conn.execute(
                     """
                     INSERT INTO verified_steps(
@@ -122,15 +139,157 @@ class LearningStore:
                         step.element_count_after,
                         step.error,
                         step.ig_version,
-                        json.dumps(step.params),
+                        json.dumps({**step.params, "anchor": step.anchor, "screenshot_path": screenshot_path or ""}),
                         _utc_now(),
                     ),
                 )
                 if step.verified in {"failed", "unverified"} or not step.executor_ok:
                     failures += 1
-                if step.verified == "verified" and step.executor_ok:
+                if step.verified == "verified" and step.executor_ok and step.anchor:
+                    self._save_grounding_example(conn, step, screenshot_path)
+                elif step.verified == "verified" and step.executor_ok:
                     self._bump_memory(conn, step)
         return len(steps), failures
+
+    def _screenshots_dir(self) -> Path:
+        d = self.path.parent / "screenshots"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _persist_screenshot(self, step: VerifiedStepRecord) -> str | None:
+        b64 = (step.screenshot_b64 or "").strip()
+        if not b64 or step.verified != "verified":
+            return step.screenshot_path
+        try:
+            raw = base64.b64decode(b64)
+            name = f"{step.device_id}_{step.session_id}_{step.step}.jpg".replace("/", "_")
+            path = self._screenshots_dir() / name
+            path.write_bytes(raw)
+            return str(path)
+        except (ValueError, OSError):
+            return step.screenshot_path
+
+    def _save_grounding_example(
+        self,
+        conn: sqlite3.Connection,
+        step: VerifiedStepRecord,
+        screenshot_path: str | None,
+    ) -> None:
+        anchor = (step.anchor or step.params.get("ui_key") or "").strip().strip('"')
+        if not anchor:
+            return
+        try:
+            x = int(step.params.get("x") or 0)
+            y = int(step.params.get("y") or 0)
+        except (TypeError, ValueError):
+            return
+        if x <= 0 or y <= 0:
+            return
+        sw = int(step.params.get("screen_width") or step.params.get("screen_w") or 0)
+        sh = int(step.params.get("screen_height") or step.params.get("screen_h") or 0)
+        conn.execute(
+            """
+            INSERT INTO grounding_examples(
+                device_id, anchor, x, y, screen_width, screen_height,
+                screenshot_path, ig_version, verified, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                step.device_id,
+                anchor,
+                x,
+                y,
+                sw,
+                sh,
+                screenshot_path or "",
+                step.ig_version,
+                step.verified,
+                _utc_now(),
+            ),
+        )
+        # Cap per anchor/device
+        conn.execute(
+            """
+            DELETE FROM grounding_examples WHERE id NOT IN (
+                SELECT id FROM grounding_examples
+                WHERE device_id = ? AND anchor = ?
+                ORDER BY id DESC LIMIT 500
+            ) AND device_id = ? AND anchor = ?
+            """,
+            (step.device_id, anchor, step.device_id, anchor),
+        )
+
+    def grounding_examples(
+        self,
+        anchor: str,
+        device_id: str = "",
+        limit: int = 5,
+    ) -> list[GroundingExample]:
+        with self._conn() as conn:
+            if device_id:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM grounding_examples
+                    WHERE anchor = ? AND device_id = ? AND verified = 'verified'
+                    ORDER BY id DESC LIMIT ?
+                    """,
+                    (anchor, device_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM grounding_examples
+                    WHERE anchor = ? AND verified = 'verified'
+                    ORDER BY id DESC LIMIT ?
+                    """,
+                    (anchor, limit),
+                ).fetchall()
+        return [
+            GroundingExample(
+                anchor=row["anchor"],
+                x=row["x"],
+                y=row["y"],
+                screen_width=row["screen_width"],
+                screen_height=row["screen_height"],
+                device_id=row["device_id"],
+                ig_version=row["ig_version"],
+            )
+            for row in rows
+        ]
+
+    def export_grounding_dataset(self, anchor: str | None = None, limit: int = 1000) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            if anchor:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM grounding_examples
+                    WHERE anchor = ? AND verified = 'verified'
+                    ORDER BY id DESC LIMIT ?
+                    """,
+                    (anchor, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM grounding_examples
+                    WHERE verified = 'verified'
+                    ORDER BY id DESC LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+        return [
+            {
+                "image_path": row["screenshot_path"],
+                "anchor": row["anchor"],
+                "x": row["x"],
+                "y": row["y"],
+                "screen_width": row["screen_width"],
+                "screen_height": row["screen_height"],
+                "device_id": row["device_id"],
+                "ig_version": row["ig_version"],
+            }
+            for row in rows
+        ]
 
     def record_novel_plans(self, steps: list[VerifiedStepRecord]) -> list[NovelPlanRecord]:
         """Persist first-seen verified action sequences (Genie novel-plan pattern)."""
@@ -352,7 +511,7 @@ def _ui_key_for_action(action: str, params: dict[str, Any]) -> str | None:
         if tab:
             return f"nav_{tab}"
         if action == "like_comment":
-            return "comments_icon"
+            return "comment_heart"
         return f"action_{action}"
     if action == "navigate":
         tab = str(params.get("tab", "")).lower()

@@ -50,5 +50,13 @@ class LearningService:
     def list_novel_plans(self, device_id: str | None = None, limit: int = 20) -> list[NovelPlanRecord]:
         return self.store.list_novel_plans(device_id=device_id, limit=limit)
 
+    def grounding_examples(self, anchor: str, device_id: str = "", limit: int = 5) -> list:
+        from .grounding_examples import GroundingExample
+
+        return self.store.grounding_examples(anchor, device_id=device_id, limit=limit)
+
+    def export_grounding_dataset(self, anchor: str | None = None, limit: int = 1000) -> list:
+        return self.store.export_grounding_dataset(anchor=anchor, limit=limit)
+
     def novel_plan_hints(self, device_id: str, limit: int = 5) -> str:
         return self.store.novel_plan_hints(device_id, limit=limit)

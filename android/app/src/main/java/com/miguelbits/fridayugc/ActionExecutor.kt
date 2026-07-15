@@ -13,7 +13,7 @@ import com.miguelbits.fridayugc.tools.ToolRegistry
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonPrimitive
 
-/** Executes UGC operator actions — binds motor at execution time via a11y + device memory. */
+/** Executes UGC operator actions — gestures + vision taps; a11y tree only for non-Reels flows. */
 class ActionExecutor(
     private val service: AccessibilityService,
     private var memoryStore: DeviceMemoryStore? = null,
@@ -46,6 +46,7 @@ class ActionExecutor(
     suspend fun runPress(resp: StepResponse): Result = press(resp)
     suspend fun runOpenApp(resp: StepResponse): Result = openApp(resp)
     suspend fun runNavigate(resp: StepResponse): Result = navigate(resp)
+    suspend fun runOpenReels(resp: StepResponse): Result = openReelsDeepLink()
     suspend fun runComment(resp: StepResponse): Result = comment(resp)
     suspend fun runDm(resp: StepResponse): Result = dm(resp)
     suspend fun runPost(resp: StepResponse): Result = post(resp)
@@ -56,17 +57,29 @@ class ActionExecutor(
     }
 
     private suspend fun tap(resp: StepResponse): Result {
+        val dm = service.resources.displayMetrics
+        val screenW = dm.widthPixels
+        val screenH = dm.heightPixels
+        val uiKey = strParam(resp, "ui_key")
+
         val id = intParam(resp, "target_id")
         if (id != null) {
             val node = ScreenReader.nodeAt(root(), id) ?: return Result(false, "no node $id")
-            val screenH = service.resources.displayMetrics.heightPixels
             if (ScreenReader.isInStoryTrayZone(node, screenH)) {
                 return Result(false, "tap blocked — target is in story tray (opens Stories)")
             }
             val clickable = node.findClickableAncestor() ?: node
-            if (clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return Result(true)
             val rect = Rect()
             clickable.getBoundsInScreen(rect)
+            if (uiKey == "comment_heart" && !rect.isEmpty) {
+                if (CommentLikesRoutine.isReelLikeZone(rect.centerX(), rect.centerY(), screenW, screenH)) {
+                    return Result(false, "comment_heart blocked — reel like rail")
+                }
+                if (ReelsTargetFinder.isAudioZone(rect.centerX(), rect.centerY(), screenW, screenH)) {
+                    return Result(false, "comment_heart blocked — audio rail")
+                }
+            }
+            if (clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return Result(true)
             if (!rect.isEmpty) {
                 val ok = GestureHelper.tapHuman(
                     service,
@@ -80,12 +93,28 @@ class ActionExecutor(
         }
         val x = intParam(resp, "x"); val y = intParam(resp, "y")
         return if (x != null && y != null) {
-            val screenH = service.resources.displayMetrics.heightPixels
             val storyMaxY = (screenH * 0.28f).toInt()
             if (y < storyMaxY) {
                 return Result(false, "tap blocked — coordinates in story tray zone")
             }
-            val ok = GestureHelper.tapHuman(service, x, y)
+            if (uiKey == "comment_heart") {
+                val sheetMinY = (screenH * 0.55f).toInt()
+                if (y < sheetMinY && CommentLikesRoutine.isReelLikeZone(x, y, screenW, screenH)) {
+                    return Result(false, "comment_heart blocked — reel like rail")
+                }
+                if (ReelsTargetFinder.isAudioZone(x, y, screenW, screenH)) {
+                    return Result(false, "comment_heart blocked — audio rail")
+                }
+            } else if (uiKey == "comments_icon") {
+                if (ReelsTargetFinder.isAudioZone(x, y, screenW, screenH)) {
+                    return Result(false, "comments_icon blocked — audio rail")
+                }
+            }
+            val ok = if (uiKey == "comments_icon") {
+                GestureHelper.tapPrecise(service, x, y)
+            } else {
+                GestureHelper.tapHuman(service, x, y)
+            }
             delay(200)
             Result(ok, if (ok) null else "gesture tap failed")
         } else Result(false, "tap needs target_id or x,y")
@@ -96,12 +125,14 @@ class ActionExecutor(
 
     private suspend fun navigate(resp: StepResponse): Result {
         val tab = strParam(resp, "tab")?.lowercase() ?: return Result(false, "navigate needs tab")
+        if (tab == "reels") {
+            return openReelsDeepLink().also { delay(1400) }
+        }
         val r = root()
         val screenH = service.resources.displayMetrics.heightPixels
 
         val keywords = when (tab) {
             "home" -> arrayOf("home", "feed", "id:feed", "id:home")
-            "reels" -> arrayOf("reels", "clips", "vídeos", "videos", "id:clips", "id:reel", "id:reels")
             "search" -> arrayOf("search", "explore", "id:search")
             "profile" -> arrayOf("profile", "id:profile")
             "inbox" -> arrayOf("messages", "inbox", "direct", "id:direct")
@@ -112,7 +143,6 @@ class ActionExecutor(
 
         ScreenReader.indexBottomNavTab(r, tab, screenH)?.let { return tapIndex(it) }
         ScreenReader.indexByTextInBottomNav(r, screenH, *keywords)?.let { return tapIndex(it) }
-        // Never indexByText for reels — story tray bubbles match "reel"/"story" and open Stories.
 
         memoryStore?.lookup("nav_$tab")?.let { (x, y) ->
             val ok = GestureHelper.tapHuman(service, x, y)
@@ -120,14 +150,11 @@ class ActionExecutor(
             return Result(ok, if (ok) null else "memory tap failed for nav_$tab")
         }
 
-        if (tab == "reels") {
-            // Deep link only — NO pager swipe fallback. Pager swipes fire from the left
-            // screen edge and produce erratic horizontal (often RIGHT) motion that
-            // conflicts with Android's back gesture and breaks autonomy.
-            openReelsViaIntent()?.let { return it }
-        }
+        return Result(false, "tab not found: $tab")
+    }
 
-        return Result(false, "tab not found: $tab (no a11y label, device memory, or deep link)")
+    fun openReelsDeepLink(): Result {
+        return openReelsViaIntent() ?: Result(false, "Instagram deep link to Reels failed")
     }
 
     private fun openReelsViaIntent(): Result? {
@@ -203,8 +230,14 @@ class ActionExecutor(
 
     private suspend fun scroll(resp: StepResponse): Result {
         val dir = strParam(resp, "direction")?.lowercase() ?: "down"
+        val zone = strParam(resp, "zone")?.lowercase()
         if (dir == "right") {
             return Result(false, "scroll RIGHT blocked on Instagram (Stories risk)")
+        }
+        if (zone == "comments_sheet") {
+            val ok = GestureHelper.scrollCommentsSheet(service)
+            delay(350)
+            return Result(ok, if (ok) null else "comments sheet scroll failed")
         }
         if (dir == "left") {
             val ok = GestureHelper.swipeFeedPager(service, dir)

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
 import com.miguelbits.fridayugc.model.AgentProgress
+import com.miguelbits.fridayugc.model.SessionBudget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,6 +54,7 @@ class FridayForegroundService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_RUN_COMMENT_LIKES -> startCommentLikesRoutine()
             ACTION_RUN_TASK -> {
                 val goal = intent.getStringExtra(EXTRA_GOAL).orEmpty()
                 if (goal.isNotBlank()) startManualGoal(goal)
@@ -81,6 +83,51 @@ class FridayForegroundService : Service() {
                 ),
             )
         }
+    }
+
+    private fun startCommentLikesRoutine() {
+        val pending = consumePendingCommentLikes() ?: return
+        if (agentJob?.isActive == true) {
+            AgentNotificationHub.apply(AgentProgress.Idle("Session already running"))
+            return
+        }
+        stopRequested = false
+        agentJob = scope.launch {
+            if (!AgentRunLock.tryAcquire()) {
+                AgentNotificationHub.apply(AgentProgress.Idle("Session already running"))
+                return@launch
+            }
+            try {
+                AgentNotificationHub.apply(
+                    AgentProgress.TaskQueued(
+                        taskKind = pending.taskKind,
+                        goal = pending.goal,
+                        maxSteps = pending.maxSteps,
+                    ),
+                )
+                val controller = AgentController(
+                    brain = brain,
+                    voice = voice,
+                    mode = "full",
+                    initialBudget = pending.budget,
+                    maxSteps = pending.maxSteps,
+                    taskKind = pending.taskKind,
+                    onSay = { AgentNotificationHub.apply(AgentProgress.Idle(it)) },
+                    onProgress = AgentNotificationHub::apply,
+                    onApproval = { resp -> confirmCommentLikes(resp) },
+                    shouldStop = { stopRequested },
+                )
+                controller.runGoal(pending.goal)
+            } finally {
+                AgentRunLock.release()
+            }
+        }
+    }
+
+    private suspend fun confirmCommentLikes(resp: com.miguelbits.fridayugc.model.StepResponse): Boolean {
+        if (FridayPreferences.autonomous(this)) return true
+        if (!resp.approvalRequired) return true
+        return false
     }
 
     private fun startManualGoal(goal: String) {
@@ -160,11 +207,41 @@ class FridayForegroundService : Service() {
         private const val EXTRA_TASK_ID = "task_id"
         private const val EXTRA_MAX_STEPS = "max_steps"
         const val ACTION_STOP = "com.miguelbits.fridayugc.STOP"
+        const val ACTION_RUN_COMMENT_LIKES = "com.miguelbits.fridayugc.RUN_COMMENT_LIKES"
         const val ACTION_RUN_TASK = "com.miguelbits.fridayugc.RUN_TASK"
         const val ACTION_POLL_TASKS = "com.miguelbits.fridayugc.POLL_TASKS"
         const val ACTION_PROGRESS = "com.miguelbits.fridayugc.PROGRESS"
         @Volatile
         var stopRequested = false
+
+        private data class PendingCommentLikes(
+            val goal: String,
+            val budget: SessionBudget,
+            val taskKind: String,
+            val maxSteps: Int,
+        )
+
+        @Volatile
+        private var pendingCommentLikes: PendingCommentLikes? = null
+
+        private fun consumePendingCommentLikes(): PendingCommentLikes? {
+            val p = pendingCommentLikes
+            pendingCommentLikes = null
+            return p
+        }
+
+        fun runCommentLikesRoutine(context: Context, goal: String, budget: SessionBudget) {
+            pendingCommentLikes = PendingCommentLikes(
+                goal = goal,
+                budget = budget,
+                taskKind = "reels_comment_likes",
+                maxSteps = 120,
+            )
+            context.startForegroundService(
+                Intent(context, FridayForegroundService::class.java)
+                    .setAction(ACTION_RUN_COMMENT_LIKES),
+            )
+        }
 
         fun updateStatus(context: Context, status: String) {
             AgentNotificationHub.apply(AgentProgress.Idle(status))

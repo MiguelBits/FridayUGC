@@ -14,11 +14,11 @@ def test_low_effort_detection():
 
 
 def test_daily_cap_per_user(monkeypatch, tmp_path):
-    from datetime import date
+    from datetime import datetime, timezone
 
-    from app.config import Settings, get_settings
+    from app.config import get_settings
 
-    today = date.today().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     ledger_file = tmp_path / "ledger.json"
     ledger_file.write_text(
         f'{{"replies": ['
@@ -29,17 +29,10 @@ def test_daily_cap_per_user(monkeypatch, tmp_path):
         f"]}}",
         encoding="utf-8",
     )
+    monkeypatch.setenv("FRIDAY_INBOX_LEDGER_PATH", str(ledger_file))
     get_settings.cache_clear()
-
-    class TestSettings(Settings):
-        inbox_ledger_path: str = str(ledger_file)
-
-    monkeypatch.setattr("app.inbox.policy.get_settings", lambda: TestSettings())
-    monkeypatch.setattr("app.inbox.store.get_settings", lambda: TestSettings())
 
     msg = IncomingMessage(message_id="m3", author="jane", text="you there?", channel="dm")
     decision = evaluate_one(msg, InboxStore())
     assert decision.action == "skip"
     assert "daily_cap" in decision.reason
-
-    get_settings.cache_clear()

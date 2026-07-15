@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import re
 from typing import Any
 
 from ..config import get_settings
+from ..learning.grounding_examples import format_exemplar_hints
+from ..learning.store import LearningStore
 from ..llm import ChatMessage, get_vision_llm
 from .actions import GroundRequest, GroundResponse, ScreenElement, SomMark
 
 ANCHOR_HINTS: dict[str, str] = {
     "comments_icon": (
-        "Instagram Reels RIGHT rail speech-bubble / comments icon "
-        "(below the reel heart, above share/audio). NOT the reel like heart. NOT audio disc."
+        "Instagram Reels speech-bubble / comments icon on the RIGHT rail — "
+        "the icon DIRECTLY BELOW the reel heart/like button. NOT share. NOT audio disc."
     ),
     "comment_heart": (
         "Small heart/like button on a COMMENT ROW inside the bottom comments sheet "
@@ -57,11 +61,47 @@ def _som_hint(marks: list[SomMark]) -> str:
     return "\n".join(lines)
 
 
-def _build_ground_prompt(req: GroundRequest) -> str:
+def _decode_image_size(screenshot_b64: str) -> tuple[int, int]:
+    """Return (width, height) of the JPEG sent to the vision model."""
+    try:
+        from PIL import Image
+
+        raw = base64.b64decode(screenshot_b64, validate=False)
+        with Image.open(io.BytesIO(raw)) as img:
+            return img.size
+    except (ValueError, OSError, ImportError):
+        return 0, 0
+
+
+def _rescale_coords(
+    x: int,
+    y: int,
+    img_w: int,
+    img_h: int,
+    screen_w: int,
+    screen_h: int,
+) -> tuple[int, int]:
+    """Map model coords from encoded image space to device display pixels."""
+    if img_w <= 0 or img_h <= 0 or screen_w <= 0 or screen_h <= 0:
+        return x, y
+    if img_w == screen_w and img_h == screen_h:
+        return x, y
+    sx = screen_w / img_w
+    sy = screen_h / img_h
+    return int(round(x * sx)), int(round(y * sy))
+
+
+def _build_ground_prompt(req: GroundRequest, image_w: int = 0, image_h: int = 0) -> str:
     hint = ANCHOR_HINTS.get(req.anchor, req.anchor)
     row_line = ""
     if req.anchor == "comment_heart" and req.row_index > 0:
         row_line = f"Pick the heart for comment row index {req.row_index} (0=top visible comment).\n"
+    exemplars = format_exemplar_hints(
+        LearningStore().grounding_examples(req.anchor, device_id=req.device_id, limit=5)
+    )
+    image_line = ""
+    if image_w > 0 and image_h > 0:
+        image_line = f"IMAGE_SIZE: {image_w}x{image_h}\n"
     use_som = req.use_som and len(req.som_marks) > 0
     if use_som:
         return (
@@ -70,6 +110,7 @@ def _build_ground_prompt(req: GroundRequest) -> str:
             f"DESCRIPTION: {hint}\n"
             f"SCREEN_TYPE: {req.screen_type}\n"
             f"{row_line}"
+            f"{exemplars}"
             f"SOM_MARKS (numbered boxes on image):\n{_som_hint(req.som_marks)}\n"
             'Return JSON: {"mark_id":int,"confidence":0.0-1.0,"reason":"..."}\n'
         )
@@ -79,11 +120,13 @@ def _build_ground_prompt(req: GroundRequest) -> str:
         f"DESCRIPTION: {hint}\n"
         f"SCREEN_TYPE: {req.screen_type}\n"
         f"SCREEN_SIZE: {req.screen_width}x{req.screen_height}\n"
+        f"{image_line}"
         f"{row_line}"
+        f"{exemplars}"
         f"ACCESSIBILITY HINTS:\n{_elements_hint(req.elements)}\n"
         'Return JSON: {"action":"tap"|"like_comment","params":{"x":int,"y":int},'
         '"confidence":0.0-1.0,"reason":"..."}\n'
-        "Coordinates must be within SCREEN_SIZE bounds."
+        "Return x,y in SCREEN_SIZE (device display) pixel coordinates."
     )
 
 
@@ -100,7 +143,15 @@ def _pick_mock_mark(req: GroundRequest) -> int | None:
         return None
     anchor = req.anchor
     if anchor == "comments_icon":
-        # Right-rail elements tend to be high x
+        h = req.screen_height or 2400
+        w = req.screen_width or 1080
+        band = [
+            m for m in req.som_marks
+            if m.x > w * 0.78 and h * 0.47 <= m.y <= h * 0.57
+        ]
+        if band:
+            band.sort(key=lambda m: abs(m.y - h * 0.52))
+            return band[0].mark_id
         sorted_m = sorted(req.som_marks, key=lambda m: (-m.x, m.y))
         return sorted_m[0].mark_id if sorted_m else None
     if anchor == "comment_heart":
@@ -114,14 +165,33 @@ def _pick_mock_mark(req: GroundRequest) -> int | None:
 def _parse_ground_json(raw: str) -> dict[str, Any]:
     text = raw.strip()
     if "```" in text:
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
+        parts = text.split("```")
+        for part in parts:
+            chunk = part.strip()
+            if chunk.startswith("json"):
+                chunk = chunk[4:].strip()
+            if chunk.startswith("{"):
+                text = chunk
+                break
     text = text.strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
+    # Largest brace-balanced object (handles nested params.x/y).
+    start = text.find("{")
+    if start >= 0:
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start : i + 1])
+                    except json.JSONDecodeError:
+                        break
     m = re.search(r"\{[^{}]*(\"mark_id\"|\"x\")\s*:\s*\d+[^{}]*\}", text)
     if m:
         try:
@@ -129,6 +199,26 @@ def _parse_ground_json(raw: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             pass
     return {}
+
+
+def _parse_coord(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+def _comments_icon_band_ok(xi: int, yi: int, w: int, h: int) -> bool:
+    """comments_icon rail band — relaxed for device variance."""
+    if w <= 0 or h <= 0:
+        return True
+    if xi > w * 0.78 and yi >= h * 0.62:
+        return False
+    if xi > w * 0.78 and not (h * 0.45 <= yi <= h * 0.60):
+        return False
+    return True
 
 
 def _mock_ground(req: GroundRequest) -> GroundResponse:
@@ -148,8 +238,8 @@ def _mock_ground(req: GroundRequest) -> GroundResponse:
     w = req.screen_width or 1080
     h = req.screen_height or 2400
     presets = {
-        "comments_icon": (int(w * 0.92), int(h * 0.58)),
-        "comment_heart": (int(w * 0.86), int(h * (0.58 + 0.07 * req.row_index))),
+        "comments_icon": (int(w * 0.90), int(h * 0.56)),
+        "comment_heart": (int(w * 0.86), int(h * (0.55 + 0.07 * req.row_index))),
         "nav_reels": (int(w * 0.30), int(h * 0.93)),
         "reel_like": (int(w * 0.92), int(h * 0.48)),
     }
@@ -197,9 +287,10 @@ async def ground_target(req: GroundRequest) -> GroundResponse:
             needs_screenshot=True,
         )
 
+    img_w, img_h = _decode_image_size(shot)
     use_som = req.use_som and len(req.som_marks) > 0
     system = GROUND_SYSTEM_SOM if use_som else GROUND_SYSTEM
-    prompt = _build_ground_prompt(req)
+    prompt = _build_ground_prompt(req, image_w=img_w, image_h=img_h)
     llm = get_vision_llm()
     try:
         raw = await llm.chat(
@@ -241,6 +332,16 @@ async def ground_target(req: GroundRequest) -> GroundResponse:
                 needs_screenshot=True,
             )
         xi, yi = coords
+        sw = req.screen_width or 1080
+        sh = req.screen_height or 2400
+        if req.anchor == "comments_icon" and not _comments_icon_band_ok(xi, yi, sw, sh):
+            return GroundResponse(
+                action="tap",
+                params={},
+                confidence=0.0,
+                reason=f"som mark outside comments band ({xi},{yi})",
+                needs_screenshot=True,
+            )
         action = "like_comment" if req.anchor == "comment_heart" else "tap"
         try:
             conf = float(data.get("confidence", 0.75))
@@ -256,11 +357,9 @@ async def ground_target(req: GroundRequest) -> GroundResponse:
     params = data.get("params") if isinstance(data.get("params"), dict) else data
     if not isinstance(params, dict):
         params = {}
-    x = params.get("x") or data.get("x")
-    y = params.get("y") or data.get("y")
-    try:
-        xi, yi = int(x), int(y)
-    except (TypeError, ValueError):
+    xi = _parse_coord(params.get("x") if params.get("x") is not None else data.get("x"))
+    yi = _parse_coord(params.get("y") if params.get("y") is not None else data.get("y"))
+    if xi is None or yi is None:
         return GroundResponse(
             action="tap",
             params={},
@@ -269,14 +368,28 @@ async def ground_target(req: GroundRequest) -> GroundResponse:
             needs_screenshot=True,
         )
 
-    w = req.screen_width or 9999
-    h = req.screen_height or 9999
-    if not (0 <= xi <= w and 0 <= yi <= h):
+    sw = req.screen_width or 9999
+    sh = req.screen_height or 9999
+    xi, yi = _rescale_coords(xi, yi, img_w, img_h, sw, sh)
+
+    if not (0 <= xi <= sw and 0 <= yi <= sh):
+        if img_w > 0 and img_h > 0 and (xi > sw or yi > sh):
+            xi = max(0, min(xi, sw))
+            yi = max(0, min(yi, sh))
+        else:
+            return GroundResponse(
+                action="tap",
+                params={},
+                confidence=0.0,
+                reason=f"coords out of bounds ({xi},{yi})",
+                needs_screenshot=True,
+            )
+    if req.anchor == "comments_icon" and not _comments_icon_band_ok(xi, yi, sw, sh):
         return GroundResponse(
             action="tap",
             params={},
             confidence=0.0,
-            reason=f"coords out of bounds ({xi},{yi})",
+            reason=f"comments_icon coords outside comments band ({xi},{yi})",
             needs_screenshot=True,
         )
 

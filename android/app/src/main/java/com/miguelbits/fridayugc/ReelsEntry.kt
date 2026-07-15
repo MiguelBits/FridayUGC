@@ -5,8 +5,8 @@ import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Autonomous Reels entry — bottom nav → deep link → memory → ONE controlled pager swipe LEFT.
- * Never swipe RIGHT (opens Stories). Never use untagged horizontal swipes.
+ * Autonomous Reels entry — deep link → vision ground nav_reels.
+ * No a11y-tree targeting, memory coords, fixed coords, or pager swipe.
  */
 object ReelsEntry {
 
@@ -19,10 +19,10 @@ object ReelsEntry {
 
     suspend fun enter(
         svc: FridayAccessibilityService,
-        memoryStore: DeviceMemoryStore,
+        brain: BrainClient,
         onSay: (String) -> Unit,
     ): Result {
-        val executor = svc.executor.apply { attachMemory(memoryStore) }
+        val executor = svc.executor
         var lastAction = "none"
 
         fun classify() = ScreenClassifier.classify(
@@ -42,37 +42,13 @@ object ReelsEntry {
             return Result(true, true, "already_on_reels", state.screenType)
         }
 
-        memoryStore.lookup("nav_reels")?.let { (x, y) ->
-            onSay("Reels entry — memory tap nav_reels…")
-            lastAction = "tap"
-            executor.execute(
-                StepResponse(
-                    action = "tap",
-                    params = mapOf(
-                        "x" to JsonPrimitive(x),
-                        "y" to JsonPrimitive(y),
-                        "ui_key" to JsonPrimitive("nav_reels"),
-                    ),
-                    reason = "enter_reels memory",
-                ),
-            )
-            delay(2200)
-            state = classify()
-            if (ScreenClassifier.likelyReelsSurface(state, svc.readScreen())) {
-                return Result(true, true, lastAction, state.screenType)
-            }
-        }
-
-        onSay("Reels entry — bottom nav / deep link…")
-        lastAction = "navigate"
+        onSay("Reels entry — deep link…")
+        lastAction = "open_reels"
         executor.execute(
             StepResponse(
-                action = "navigate",
-                params = mapOf(
-                    "tab" to JsonPrimitive("reels"),
-                    "ui_key" to JsonPrimitive("nav_reels"),
-                ),
-                reason = "enter_reels navigate",
+                action = "open_reels",
+                params = mapOf("ui_key" to JsonPrimitive("nav_reels")),
+                reason = "enter_reels deep link",
             ),
         )
         delay(2400)
@@ -87,16 +63,26 @@ object ReelsEntry {
             return Result(true, true, lastAction, state.screenType)
         }
 
-        if (state.screenType == "home_feed" || state.screenType == "unknown") {
-            onSay("Reels entry — one controlled swipe LEFT on feed pager…")
-            lastAction = "swipe"
-            GestureHelper.swipeFeedPager(svc, "left")
-            delay(2400)
-            state = classify()
-            if (state.screenType == "story_viewer") {
-                onSay("Swipe opened Stories — back…")
-                executor.execute(StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))))
-                delay(900)
+        onSay("Reels entry — vision ground nav_reels…")
+        lastAction = "tap"
+        val screen = svc.readScreen().copy(activity = svc.currentActivityClass())
+        val cap = ScreenCapture.captureForGrounding(svc, screen, useSom = false)
+        if (cap != null) {
+            val deviceId = FridayPreferences.deviceId(svc.applicationContext)
+            val resolved = VisionMotor.groundToStep(
+                svc,
+                brain,
+                "nav_reels",
+                screen.copy(screenshotB64 = cap.screenshotB64),
+                state,
+                cap.screenshotB64,
+                deviceId = deviceId,
+                imageWidth = cap.imageWidth,
+                imageHeight = cap.imageHeight,
+            )
+            if (!resolved.needsScreenshot) {
+                executor.execute(resolved.response)
+                delay(2200)
                 state = classify()
             }
         }

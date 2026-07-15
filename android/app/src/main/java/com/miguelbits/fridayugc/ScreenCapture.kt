@@ -20,6 +20,8 @@ object ScreenCapture {
     data class SomCapture(
         val screenshotB64: String,
         val somMarks: List<SomMark>,
+        val imageWidth: Int = 0,
+        val imageHeight: Int = 0,
     )
 
     suspend fun captureBase64(service: AccessibilityService, maxSide: Int = 768): String? =
@@ -51,6 +53,8 @@ object ScreenCapture {
             SomCapture(
                 screenshotB64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP),
                 somMarks = marks,
+                imageWidth = toEncode.width,
+                imageHeight = toEncode.height,
             )
         } catch (_: Exception) {
             null

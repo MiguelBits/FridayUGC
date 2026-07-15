@@ -41,6 +41,12 @@ def test_record_trajectory_and_memory_bump():
     assert memory.entries[0].x == 120
 
 
+def test_like_comment_ui_key_maps_to_comment_heart():
+    from app.learning.store import _ui_key_for_action
+
+    assert _ui_key_for_action("like_comment", {}) == "comment_heart"
+
+
 def test_memory_hints_in_prompt():
     svc = LearningService()
     svc.record_trajectory(TrajectoryBatchRequest(device_id="phone-b", steps=[_step(device_id="phone-b")]))
@@ -61,6 +67,27 @@ def test_eval_reports_failures():
     assert report.cases_reviewed >= 1
     assert 0.0 <= report.pass_rate <= 1.0
     assert svc.latest_eval() is not None
+
+
+def test_grounding_example_stored_for_vision_anchor():
+    svc = LearningService()
+    svc.record_trajectory(
+        TrajectoryBatchRequest(
+            device_id="phone-v",
+            steps=[
+                _step(
+                    device_id="phone-v",
+                    anchor="comments_icon",
+                    params={"x": 990, "y": 1250, "ui_key": "comments_icon", "screen_width": "1080", "screen_height": "2400"},
+                )
+            ],
+        )
+    )
+    examples = svc.grounding_examples("comments_icon", device_id="phone-v")
+    assert len(examples) == 1
+    assert examples[0].x == 990
+    export = svc.export_grounding_dataset(anchor="comments_icon", limit=10)
+    assert export[0]["anchor"] == "comments_icon"
 
 
 def test_learning_api_endpoints():

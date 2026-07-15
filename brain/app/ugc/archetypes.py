@@ -26,11 +26,15 @@ def pick_archetype(
         return None
     hint = (pillar_hint or lane_hint).lower()
     if hint:
+        parts = [w for w in hint.replace(",", " ").split() if w]
         matched = [
             a
             for a in items
-            if any(hint in p.lower() for p in a.get("pillars", []))
-            or hint in a.get("id", "").lower()
+            if any(
+                any(part in p.lower() or p.lower() in hint for part in parts)
+                for p in a.get("pillars", [])
+            )
+            or any(part in a.get("id", "").lower() for part in parts)
         ]
         if matched:
             return random.choice(matched)

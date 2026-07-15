@@ -58,8 +58,8 @@ class MockClient(LLMClient):
                 if m:
                     row = int(m.group(1))
             presets = {
-                "comments_icon": (int(w * 0.92), int(h * 0.58)),
-                "comment_heart": (int(w * 0.86), int(h * (0.58 + 0.07 * row))),
+                "comments_icon": (int(w * 0.93), int(h * 0.52)),
+                "comment_heart": (int(w * 0.86), int(h * (0.55 + 0.07 * row))),
                 "nav_reels": (int(w * 0.30), int(h * 0.93)),
             }
             x, y = presets.get(anchor, (w // 2, h // 2))

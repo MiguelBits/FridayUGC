@@ -42,8 +42,11 @@ class DeviceMemoryStore(context: Context) {
         verified: String,
         igVersion: String = "",
         resolvedXY: Pair<Int, Int>? = null,
+        screenW: Int = 0,
+        screenH: Int = 0,
     ) {
         val uiKey = uiKeyFor(action, params) ?: return
+        if (uiKey == "comments_icon") return // always anchored below live reel-like — do not memorize
         val paramX = (params["x"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
         val paramY = (params["y"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
         val x = if (paramX > 0) paramX else resolvedXY?.first ?: 0
@@ -141,6 +144,10 @@ class DeviceMemoryStore(context: Context) {
             if (x <= 0 || y <= 0) return null
             return x to y
         }
+    }
+
+    fun invalidate(uiKey: String) {
+        db.delete("device_memory", "ui_key = ?", arrayOf(uiKey))
     }
 
     fun topEntries(limit: Int = 32): List<DeviceMemoryEntry> {

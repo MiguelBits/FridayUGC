@@ -21,8 +21,8 @@ def _screen_size(screen: Screen) -> tuple[int, int]:
 def find_comments_target(screen: Screen) -> dict:
     """Comments bubble — element id from a11y only."""
     w, h = _screen_size(screen)
-    min_y = int(h * REEL_LIKE_Y_MAX) if h else 0
-    max_y = int(h * 0.72) if h else 0
+    min_y = int(h * 0.47) if h else 0
+    max_y = int(h * 0.57) if h else 0
     min_x = int(w * 0.78) if w else 0
     for e in screen.elements:
         if not e.clickable:

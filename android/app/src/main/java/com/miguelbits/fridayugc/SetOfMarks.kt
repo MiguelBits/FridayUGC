@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import com.miguelbits.fridayugc.model.Screen
+import com.miguelbits.fridayugc.model.ScreenElement
 import com.miguelbits.fridayugc.model.SomMark
 
 /**
@@ -30,9 +31,8 @@ object SetOfMarks {
     ): Result {
         val scaleX = source.width.toFloat() / displayWidth.coerceAtLeast(1)
         val scaleY = source.height.toFloat() / displayHeight.coerceAtLeast(1)
-        val candidates = screen.elements.filter { el ->
-            (el.clickable || el.editable) && el.w > 8 && el.h > 8
-        }.take(MAX_MARKS)
+        val candidates = clickableCandidates(screen)
+        val marks = computeMarks(candidates, scaleX, scaleY)
 
         val mutable = source.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(mutable)
@@ -51,7 +51,6 @@ object SetOfMarks {
             isFakeBoldText = true
         }
 
-        val marks = ArrayList<SomMark>(candidates.size)
         candidates.forEachIndexed { idx, el ->
             val markId = idx + 1
             val left = (el.x * scaleX).toInt()
@@ -65,18 +64,30 @@ object SetOfMarks {
             val badge = Rect(left, top.coerceAtLeast(0), (left + tw + 16).toInt(), top + 36)
             canvas.drawRect(badge, fillPaint)
             canvas.drawText(label, left + 8f, top + 26f, textPaint)
-            val cx = ((el.x + el.w / 2) * scaleX).toInt()
-            val cy = ((el.y + el.h / 2) * scaleY).toInt()
-            marks.add(
-                SomMark(
-                    markId = markId,
-                    x = cx,
-                    y = cy,
-                    text = el.text.take(80),
-                    elementId = el.id,
-                ),
-            )
         }
         return Result(mutable, marks)
     }
+
+    internal fun clickableCandidates(screen: Screen) =
+        screen.elements.filter { el ->
+            (el.clickable || el.editable) && el.w > 8 && el.h > 8
+        }.take(MAX_MARKS)
+
+    internal fun computeMarks(
+        candidates: List<ScreenElement>,
+        scaleX: Float,
+        scaleY: Float,
+    ): List<SomMark> =
+        candidates.mapIndexed { idx, el ->
+            val markId = idx + 1
+            val cx = ((el.x + el.w / 2) * scaleX).toInt()
+            val cy = ((el.y + el.h / 2) * scaleY).toInt()
+            SomMark(
+                markId = markId,
+                x = cx,
+                y = cy,
+                text = el.text.take(80),
+                elementId = el.id,
+            )
+        }
 }

@@ -8,7 +8,7 @@ from ..config import get_settings
 from ..ugc.operator import playbook_text
 from .actions import Screen, ScreenState, StepRequest, StepResponse
 from .intents import INTENT_SPEC
-from .perception import is_reels_viewer, on_comments_sheet, on_reels_surface, resolve_state, screen_state_block
+from .perception import has_home_feed_tabs, is_reels_viewer, on_comments_sheet, on_reels_surface, resolve_state, screen_state_block
 
 VALID_ACTIONS = frozenset({
     "tap", "scroll", "swipe", "type", "press", "open_app", "wait", "intent", "navigate",
@@ -20,7 +20,7 @@ COMMENT_LIKES_PLAYBOOK = (
     "\nINSTAGRAM WORKFLOW — reels_comment_likes (intent-first):\n"
     "1. If not reels_viewer → intent enter_reels (or navigate tab=reels).\n"
     "2. On reels_viewer → intent watch_reel (dwell 2–5s), then intent open_comments.\n"
-    "3. On comments_sheet → intent engage_comments until per-reel budget met, then intent go_back.\n"
+    "3. On comments_sheet → like visible hearts, scroll down for more, like again, then go_back.\n"
     "4. intent next_reel — repeat until reels_scrolled >= reels_max.\n"
     "Phone resolves intents with vision + device memory — never hardcoded coordinates.\n"
 )
@@ -476,6 +476,34 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
                 if kick:
                     return kick
 
+    if goal_wants_comment_likes(req.goal) and resp.action in {"swipe", "scroll", "wait"}:
+        direction = str(resp.params.get("direction", "")).lower()
+        on_reels = on_reels_surface(state, ctx, req.screen)
+        phase = str(ctx.get("comment_likes_phase", "on_reels"))
+        if (
+            on_reels
+            and phase == "on_reels"
+            and not on_comments_sheet(state, ctx)
+            and ctx_int(ctx, "comment_likes_this_reel") == 0
+            and ctx_int(ctx, "ready_for_next_reel") == 0
+            and resp.action in {"swipe", "scroll", "wait"}
+            and (resp.action == "wait" or direction in {"", "up"})
+        ):
+            from .playbook import comment_likes_kickstart
+
+            kick = comment_likes_kickstart(req, state)
+            if kick:
+                return kick
+            return StepResponse(
+                action="intent",
+                params={"name": "open_comments"},
+                say="Opening comments on this reel.",
+                reason="Blocked idle/swipe on reels — open comments first",
+                done=False,
+                needs_screenshot=not bool((req.screen.screenshot_b64 or "").strip()),
+                approval_required=False,
+            )
+
     if goal_wants_comment_likes(req.goal) and resp.action in {"swipe", "scroll"}:
         direction = str(resp.params.get("direction", "")).lower()
         if direction == "right":
@@ -534,7 +562,7 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
     if goal_wants_comment_likes(req.goal) and resp.action == "intent":
         name = str(resp.params.get("name", "")).lower()
         on_reels = on_reels_surface(state, ctx, req.screen)
-        if name == "enter_reels" and on_reels:
+        if name == "enter_reels" and on_reels and not has_home_feed_tabs(req.screen):
             return StepResponse(
                 action="wait",
                 params={"ms": 400},
@@ -557,7 +585,12 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
 
     if goal_wants_comment_likes(req.goal) and resp.action == "navigate":
         tab = str(resp.params.get("tab", "")).lower()
-        if tab == "reels" and on_reels_surface(state, ctx, req.screen):
+        if (
+            tab == "reels"
+            and on_reels_surface(state, ctx, req.screen)
+            and not has_home_feed_tabs(req.screen)
+            and state.screen_type != "home_feed"
+        ):
             return StepResponse(
                 action="wait",
                 params={"ms": 400},
