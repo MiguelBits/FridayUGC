@@ -38,7 +38,7 @@ def test_step_response_needs_screenshot():
 
 
 VALID_ACTIONS = {
-    "tap", "scroll", "swipe", "type", "press", "open_app", "wait", "navigate",
+    "tap", "scroll", "swipe", "type", "press", "open_app", "wait", "intent", "navigate",
     "post", "comment", "dm", "like", "like_story", "like_comment", "view_story",
     "follow", "unfollow", "save", "done", "fail",
 }

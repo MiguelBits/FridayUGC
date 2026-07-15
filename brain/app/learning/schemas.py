@@ -26,6 +26,8 @@ class VerifiedStepRecord(BaseModel):
     ig_version: str = ""
     params: dict[str, Any] = Field(default_factory=dict)
     screenshot_path: str | None = None
+    screenshot_b64: str | None = None
+    anchor: str = ""
 
 
 class TrajectoryBatchRequest(BaseModel):
@@ -86,3 +88,12 @@ class EvalReport(BaseModel):
     pass_rate: float
     failures: list[EvalFailureCase] = Field(default_factory=list)
     notes: str = ""
+
+
+class NovelPlanRecord(BaseModel):
+    device_id: str
+    goal: str
+    signature: str
+    action_sequence: list[str] = Field(default_factory=list)
+    step_count: int = 0
+    created_at: str = ""

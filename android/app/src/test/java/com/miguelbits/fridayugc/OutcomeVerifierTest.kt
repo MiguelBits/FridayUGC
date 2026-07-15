@@ -56,4 +56,108 @@ class OutcomeVerifierTest {
         )
         assertEquals("verified", result.status)
     }
+
+    @Test
+    fun open_reels_unverified_when_still_on_home() {
+        val screen = Screen(
+            app = "com.instagram.android",
+            elements = listOf(ScreenElement(id = 1, text = "For you")),
+        )
+        val fp = ScreenValidator.fingerprint(screen)
+        val result = OutcomeVerifier.verify("open_reels", true, screen, screen, fp, fp)
+        assertEquals("unverified", result.status)
+    }
+
+    @Test
+    fun open_reels_verified_when_reels_surface_detected() {
+        val screen = Screen(
+            app = "com.instagram.android",
+            activity = "com.instagram.mainactivity.InstagramMainActivity",
+            elements = listOf(ScreenElement(id = 1, text = "Reels, selected")),
+        )
+        val fp = ScreenValidator.fingerprint(screen)
+        val result = OutcomeVerifier.verify("open_reels", true, screen, screen, fp, fp)
+        assertEquals("verified", result.status)
+    }
+
+    @Test
+    fun comments_icon_verified_when_sheet_opens() {
+        val before = Screen(app = "com.instagram.android", elements = emptyList())
+        val after = Screen(
+            app = "com.instagram.android",
+            elements = listOf(ScreenElement(id = 0, text = "Add a comment")),
+        )
+        val beforeFp = ScreenValidator.fingerprint(before)
+        val afterFp = ScreenValidator.fingerprint(after)
+        val result = OutcomeVerifier.verify(
+            "tap",
+            true,
+            before,
+            after,
+            beforeFp,
+            afterFp,
+            mapOf("ui_key" to kotlinx.serialization.json.JsonPrimitive("comments_icon")),
+            "clips",
+        )
+        assertEquals("verified", result.status)
+    }
+
+    @Test
+    fun comment_heart_verified_on_sheet_without_tree_change() {
+        val screen = Screen(
+            app = "com.instagram.android",
+            elements = listOf(
+                ScreenElement(id = 0, text = "Add a comment"),
+                ScreenElement(id = 1, text = "Reply"),
+            ),
+        )
+        val fp = ScreenValidator.fingerprint(screen)
+        val result = OutcomeVerifier.verify(
+            "like_comment",
+            true,
+            screen,
+            screen,
+            fp,
+            fp,
+            mapOf("ui_key" to kotlinx.serialization.json.JsonPrimitive("comment_heart")),
+            "clips",
+        )
+        assertEquals("verified", result.status)
+    }
+
+    @Test
+    fun comment_heart_unverified_on_reel_overlay_composer_only() {
+        val screen = Screen(
+            app = "com.instagram.android",
+            elements = listOf(ScreenElement(id = 0, text = "Add comment...")),
+        )
+        val fp = ScreenValidator.fingerprint(screen)
+        val result = OutcomeVerifier.verify(
+            "like_comment",
+            true,
+            screen,
+            screen,
+            fp,
+            fp,
+            mapOf("ui_key" to kotlinx.serialization.json.JsonPrimitive("comment_heart")),
+            "clips",
+        )
+        assertEquals("unverified", result.status)
+    }
+
+    @Test
+    fun reels_rail_swipe_verified_on_executor_ok() {
+        val screen = Screen(app = "com.instagram.android", elements = emptyList())
+        val fp = ScreenValidator.fingerprint(screen)
+        val result = OutcomeVerifier.verify(
+            "swipe",
+            true,
+            screen,
+            screen,
+            fp,
+            fp,
+            mapOf("zone" to kotlinx.serialization.json.JsonPrimitive("reels_rail")),
+        )
+        assertEquals("verified", result.status)
+    }
 }

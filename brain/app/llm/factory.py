@@ -52,8 +52,10 @@ def get_vision_llm() -> LLMClient:
         base = f"{s.ollama_base_url.rstrip('/')}/v1"
         key = "ollama"
         model = s.ollama_model
-        if s.vision_model and ":" in s.vision_model and "/" not in s.vision_model:
-            model = s.vision_model
+        vm = (s.vision_model or "").strip()
+        # Ollama tag form e.g. gemma3:12b — not OpenAI-style google/gemma-3-12b-it
+        if vm and ":" in vm and "/" not in vm:
+            model = vm
     else:
         model = s.vision_model
 

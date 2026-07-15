@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from .evaluator import LearningEvaluator
+from .events import event_logger
 from .schemas import (
     DeviceMemoryResponse,
     DeviceMemorySyncRequest,
     EvalReport,
     LearningMetrics,
+    NovelPlanRecord,
     TrajectoryBatchRequest,
     TrajectoryBatchResponse,
     VerifiedStepRecord,
@@ -20,6 +22,10 @@ class LearningService:
 
     def record_trajectory(self, req: TrajectoryBatchRequest) -> TrajectoryBatchResponse:
         accepted, failures = self.store.record_steps(req.steps)
+        novel = self.store.record_novel_plans(req.steps)
+        for plan in novel:
+            event_logger.novel_plan(plan.device_id, plan.signature, plan.goal)
+        event_logger.trajectory_batch(req.device_id, accepted, failures)
         return TrajectoryBatchResponse(accepted=accepted, failures_recorded=failures)
 
     def sync_memory(self, req: DeviceMemorySyncRequest) -> DeviceMemoryResponse:
@@ -40,3 +46,17 @@ class LearningService:
 
     def metrics(self) -> LearningMetrics:
         return self.store.metrics()
+
+    def list_novel_plans(self, device_id: str | None = None, limit: int = 20) -> list[NovelPlanRecord]:
+        return self.store.list_novel_plans(device_id=device_id, limit=limit)
+
+    def grounding_examples(self, anchor: str, device_id: str = "", limit: int = 5) -> list:
+        from .grounding_examples import GroundingExample
+
+        return self.store.grounding_examples(anchor, device_id=device_id, limit=limit)
+
+    def export_grounding_dataset(self, anchor: str | None = None, limit: int = 1000) -> list:
+        return self.store.export_grounding_dataset(anchor=anchor, limit=limit)
+
+    def novel_plan_hints(self, device_id: str, limit: int = 5) -> str:
+        return self.store.novel_plan_hints(device_id, limit=limit)

@@ -6,6 +6,7 @@ from ..llm import ChatMessage, get_llm
 from ..persona import get_persona
 from ..retrieval.captions import retrieve_caption_examples
 from . import safety
+from .archetypes import archetype_prompt_block, pick_archetype
 from .schemas import (
     CaptionRequest,
     CaptionResponse,
@@ -42,6 +43,8 @@ def _extract_json(text: str) -> dict:
 async def make_plan(req: PlanRequest, persona_key: str = "lorena") -> PlanResponse:
     persona = get_persona(persona_key)
     llm = get_llm()
+    archetype = pick_archetype(pillar_hint=req.notes or "", lane_hint=req.lane_hint or "")
+    arch_block = archetype_prompt_block(archetype)
     user = (
         "RETURN_PLAN_JSON\n"
         "Design one Instagram reel for this reference. Respond with a JSON object with keys: "
@@ -51,6 +54,7 @@ async def make_plan(req: PlanRequest, persona_key: str = "lorena") -> PlanRespon
         f"Type hint: {req.type_hint or 'auto'}\n"
         f"Lane hint: {req.lane_hint or 'auto'}\n"
         f"Notes: {req.notes or 'none'}"
+        f"{arch_block}"
     )
     raw = await llm.chat(
         [ChatMessage("system", persona.system_prompt), ChatMessage("user", user)],
@@ -78,6 +82,8 @@ async def make_caption(req: CaptionRequest, persona_key: str = "lorena") -> Capt
         req.context,
         cta=req.cta,
     )
+    archetype = pick_archetype(pillar_hint=req.context[:120])
+    arch_block = archetype_prompt_block(archetype)
     examples_block = ""
     if rag_examples:
         lines = "\n".join(f"  - {ex!r}" for ex in rag_examples)
@@ -91,6 +97,7 @@ async def make_caption(req: CaptionRequest, persona_key: str = "lorena") -> Capt
         f"End with a {cta_map[req.cta]} style call to action. No hashtags spam (max 2).\n\n"
         f"Context: {req.context}"
         f"{examples_block}"
+        f"{arch_block}"
     )
     raw = await llm.chat(
         [ChatMessage("system", persona.system_prompt), ChatMessage("user", user)]

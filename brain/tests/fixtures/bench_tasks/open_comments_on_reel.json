@@ -1,0 +1,12 @@
+{
+  "name": "open_comments_on_reel",
+  "goal": "Open comments sheet on current reel",
+  "difficulty": "hard",
+  "max_steps": 25,
+  "mode": "read_only",
+  "success": {
+    "screen_type": "comments_sheet",
+    "foreground_app_contains": "instagram"
+  },
+  "notes": "Vision/SoM grounding path for comments icon"
+}

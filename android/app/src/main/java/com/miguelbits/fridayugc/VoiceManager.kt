@@ -15,17 +15,26 @@ import java.util.Locale
 
 /**
  * Friday's voice: OmniVoice TTS from the brain (preferred) with Android TTS fallback.
+ * Speak/TTS is off by default ([SPEAK_ENABLED]) — status text only during agent runs.
  */
-class VoiceManager(context: Context) : TextToSpeech.OnInitListener {
+class VoiceManager(
+    context: Context,
+    val speakEnabled: Boolean = SPEAK_ENABLED,
+) : TextToSpeech.OnInitListener {
+
+    companion object {
+        /** Off by default — set true when brain TTS (OmniVoice) should play aloud. */
+        const val SPEAK_ENABLED = false
+    }
 
     private val appContext = context.applicationContext
-    private var tts: TextToSpeech? = TextToSpeech(appContext, this)
+    private var tts: TextToSpeech? = if (speakEnabled) TextToSpeech(appContext, this) else null
     private var ready = false
     private var recognizer: SpeechRecognizer? = null
     private var mediaPlayer: MediaPlayer? = null
 
     override fun onInit(status: Int) {
-        if (status != TextToSpeech.SUCCESS) return
+        if (!speakEnabled || status != TextToSpeech.SUCCESS) return
         val engine = tts ?: return
         engine.language = Locale.US
         selectFemaleVoice(engine)
@@ -44,6 +53,7 @@ class VoiceManager(context: Context) : TextToSpeech.OnInitListener {
 
     /** Play high-quality WAV from the brain (OmniVoice). Falls back to system TTS on failure. */
     suspend fun speakFromBrain(brain: BrainClient, text: String, situation: String? = null) {
+        if (!speakEnabled || text.isBlank()) return
         val ok = runCatching {
             val wav = brain.speak(text, situation)
             playWav(wav)
@@ -52,7 +62,7 @@ class VoiceManager(context: Context) : TextToSpeech.OnInitListener {
     }
 
     fun speak(text: String) {
-        if (!ready || text.isBlank()) return
+        if (!speakEnabled || !ready || text.isBlank()) return
         tts?.speak(text, TextToSpeech.QUEUE_ADD, null, System.nanoTime().toString())
     }
 

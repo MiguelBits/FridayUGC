@@ -25,7 +25,7 @@ class ScreenClassifierTest {
     }
 
     @Test
-    fun reels_viewer_sparse_scrollable() {
+    fun sparse_scrollable_without_reels_signals_is_home_feed() {
         val screen = Screen(
             app = "com.instagram.android",
             elements = listOf(
@@ -33,7 +33,7 @@ class ScreenClassifierTest {
             ),
         )
         val state = ScreenClassifier.classify(screen)
-        assertEquals("reels_viewer", state.screenType)
+        assertEquals("home_feed", state.screenType)
         assertTrue(state.needsVision)
     }
 
@@ -41,10 +41,26 @@ class ScreenClassifierTest {
     fun comments_sheet_detected() {
         val screen = Screen(
             app = "com.instagram.android",
-            elements = listOf(ScreenElement(id = 0, text = "Add a comment…", editable = true)),
+            elements = listOf(
+                ScreenElement(id = 0, text = "Add a comment…", editable = true),
+                ScreenElement(id = 1, text = "Reply", clickable = true),
+                ScreenElement(id = 2, text = "user_one", clickable = true),
+            ),
         )
         val state = ScreenClassifier.classify(screen)
         assertEquals("comments_sheet", state.screenType)
+    }
+
+    @Test
+    fun reel_overlay_composer_is_not_full_comments_sheet() {
+        val screen = Screen(
+            app = "com.instagram.android",
+            elements = listOf(ScreenElement(id = 0, text = "Add comment...", editable = true)),
+        )
+        val activity = "com.instagram.clips.viewer.ClipsViewerActivity"
+        assertFalse(ScreenClassifier.isFullCommentsSheet(screen, activity))
+        val state = ScreenClassifier.classify(screen, activityClass = activity)
+        assertEquals("reels_viewer", state.screenType)
     }
 
     @Test
@@ -56,14 +72,49 @@ class ScreenClassifierTest {
     }
 
     @Test
-    fun reels_nav_label_alone_stays_home() {
+    fun likely_reels_without_home_tabs() {
         val screen = Screen(
             app = "com.instagram.android",
-            elements = List(30) { i ->
-                ScreenElement(id = i, text = "post $i", clickable = true)
-            } + ScreenElement(id = 99, text = "Reels, selected", clickable = true),
+            elements = listOf(
+                ScreenElement(id = 0, role = "scrollable", scrollable = true, w = 400, h = 800, y = 200),
+                ScreenElement(id = 1, text = "Reels, selected", clickable = true, y = 2100),
+            ),
         )
         val state = ScreenClassifier.classify(screen)
-        assertFalse(state.screenType == "reels_viewer")
+        assertEquals("reels_viewer", state.screenType)
+        assertTrue(ScreenClassifier.likelyReelsSurface(state, screen))
+    }
+
+    @Test
+    fun sparseScrollableAloneIsNotLikelyReels() {
+        val screen = Screen(
+            app = "com.instagram.android",
+            elements = listOf(
+                ScreenElement(id = 0, role = "scrollable", scrollable = true, w = 400, h = 800, y = 200),
+            ),
+        )
+        val state = ScreenClassifier.classify(screen)
+        assertFalse(ScreenClassifier.likelyReelsSurface(state, screen))
+    }
+
+    @Test
+    fun story_viewer_from_activity() {
+        val screen = Screen(app = "com.instagram.android", elements = emptyList())
+        val state = ScreenClassifier.classify(screen, activityClass = "com.instagram.story.viewer.StoryViewerActivity")
+        assertEquals("story_viewer", state.screenType)
+    }
+
+    @Test
+    fun home_feed_warns_story_tray() {
+        val screen = Screen(
+            app = "com.instagram.android",
+            elements = listOf(
+                ScreenElement(id = 0, text = "Your story", clickable = true, y = 120),
+                ScreenElement(id = 1, text = "For you", clickable = true),
+            ),
+        )
+        val state = ScreenClassifier.classify(screen)
+        assertEquals("home_feed", state.screenType)
+        assertTrue(state.signals.any { it.contains("story tray") })
     }
 }

@@ -1,0 +1,27 @@
+{
+  "name": "reels_goal_allows_navigate_or_intent",
+  "request": {
+    "session_id": "eval-reels-flex",
+    "goal": "Open reels and like comments on reels_comment_likes",
+    "step": 2,
+    "screen": {
+      "app": "com.instagram.android",
+      "elements": [
+        {"id": 0, "role": "tab", "text": "For you", "clickable": true},
+        {"id": 1, "role": "scrollable", "text": "Feed", "scrollable": true}
+      ],
+      "screen_state": {
+        "screen_type": "home_feed",
+        "selected_tab": "home",
+        "confidence": 0.9,
+        "needs_vision": false
+      }
+    },
+    "history": ["open_app"]
+  },
+  "expect": {
+    "action_in": ["navigate", "intent"],
+    "action_mode": "subset",
+    "forbidden_actions": ["like", "post"]
+  }
+}

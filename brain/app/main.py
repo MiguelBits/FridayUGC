@@ -3,8 +3,10 @@ from __future__ import annotations
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import Response
 
-from .agent.actions import StepRequest, StepResponse
+from .agent.actions import GroundRequest, GroundResponse, StepRequest, StepResponse, TickRequest, TickResponse
+from .agent.grounding import ground_target
 from .agent.router import decide
+from .agent.tick import handle_tick
 from .config import get_settings
 from .gallery.curator import curate, reply_to_comment
 from .gallery.schemas import (
@@ -42,6 +44,7 @@ from .llm.health import check_model_ready
 from .runs import RunStore
 from .runs.schemas import RunMetrics, SessionRun
 from .ugc import director
+from .ugc.archetypes import load_archetypes
 from .ugc.schemas import (
     CaptionRequest,
     CaptionResponse,
@@ -76,6 +79,7 @@ from .learning.schemas import (
     DeviceMemorySyncRequest,
     EvalReport,
     LearningMetrics,
+    NovelPlanRecord,
     TrajectoryBatchRequest,
     TrajectoryBatchResponse,
 )
@@ -110,6 +114,7 @@ async def health() -> dict:
         "model_ready": model.get("ready", False),
         "model_detail": model.get("detail", ""),
         "tts": s.tts_provider,
+        "voice_enabled": s.voice_enabled,
         "gallery": s.gallery_backend,
         "vision": s.vision_enabled,
         "vision_model": s.vision_model,
@@ -157,6 +162,30 @@ async def agent_step(req: StepRequest) -> StepResponse:
                 detail=f"LLM agent failed: {exc}",
             ) from exc
         raise
+
+
+@app.post("/agent/ground", response_model=GroundResponse, dependencies=[Depends(require_token)])
+async def agent_ground(req: GroundRequest) -> GroundResponse:
+    """Gemma 3 vision grounding — find tap target on screenshot (no OpenAI)."""
+    try:
+        return await ground_target(req)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Grounding failed: {exc}",
+        ) from exc
+
+
+@app.post("/agent/tick", response_model=TickResponse, dependencies=[Depends(require_token)])
+async def agent_tick(req: TickRequest) -> TickResponse:
+    """Thin-client loop: observe in, atomic motor action + session_context out."""
+    try:
+        return await handle_tick(req)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Tick failed: {exc}",
+        ) from exc
 
 
 # --- UGC creation ---
@@ -404,6 +433,24 @@ async def learning_latest_eval() -> EvalReport | None:
     return LearningService().latest_eval()
 
 
+@app.get("/learning/novel-plans", response_model=list[NovelPlanRecord], dependencies=[Depends(require_token)])
+async def learning_novel_plans(device_id: str | None = None, limit: int = 20) -> list[NovelPlanRecord]:
+    return LearningService().list_novel_plans(device_id=device_id, limit=min(limit, 100))
+
+
+@app.get("/learning/export-grounding", dependencies=[Depends(require_token)])
+async def learning_export_grounding(anchor: str | None = None, limit: int = 1000) -> dict:
+    """Export verified (screenshot, anchor, point) rows for offline fine-tune (Layer C)."""
+    rows = LearningService().export_grounding_dataset(anchor=anchor, limit=min(limit, 5000))
+    return {"count": len(rows), "rows": rows}
+
+
+@app.get("/content/archetypes", dependencies=[Depends(require_token)])
+async def content_archetypes() -> dict:
+    items = load_archetypes()
+    return {"count": len(items), "archetypes": items}
+
+
 # --- Inbox (DMs + comments — selective, capped replies) ---
 
 
@@ -460,6 +507,8 @@ async def voice(req: VoiceRequest) -> VoiceResponse:
 @app.post("/voice/speak", dependencies=[Depends(require_token)])
 async def voice_speak(req: SpeakRequest) -> Response:
     """High-quality TTS via OmniVoice (WAV). Pass raw text or let Gemma draft via situation."""
+    if not get_settings().voice_enabled:
+        return Response(status_code=204)
     if req.situation:
         vr = await voice_reply(VoiceRequest(user_text=req.text, situation=req.situation))
         spoken = vr.reply

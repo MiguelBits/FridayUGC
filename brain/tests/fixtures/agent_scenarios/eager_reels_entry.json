@@ -1,0 +1,29 @@
+{
+  "name": "eager_reels_entry_from_home",
+  "route": true,
+  "request": {
+    "session_id": "eval-reels-entry",
+    "goal": "reels_comment_likes session",
+    "step": 0,
+    "screen": {
+      "app": "com.instagram.android",
+      "elements": [
+        {"id": 0, "role": "tab", "text": "For you", "clickable": true},
+        {"id": 1, "role": "tab", "text": "Following", "clickable": true},
+        {"id": 2, "role": "scrollable", "text": "Feed", "scrollable": true}
+      ],
+      "screen_state": {
+        "screen_type": "home_feed",
+        "selected_tab": "home",
+        "confidence": 0.9,
+        "needs_vision": false
+      }
+    },
+    "history": []
+  },
+  "expect": {
+    "action": "navigate",
+    "params_tab": "reels",
+    "forbidden_actions": ["scroll", "swipe", "like"]
+  }
+}

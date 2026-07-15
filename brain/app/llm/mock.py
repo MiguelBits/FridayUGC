@@ -38,6 +38,39 @@ class MockClient(LLMClient):
     ) -> str:
         last = messages[-1].content if messages else ""
 
+        if "GROUND_TARGET_JSON" in last:
+            w, h = 1080, 2400
+            if "SCREEN_SIZE:" in last:
+                size = last.split("SCREEN_SIZE:")[-1].split("\n")[0].strip()
+                if "x" in size:
+                    parts = size.split("x")
+                    try:
+                        w, h = int(parts[0]), int(parts[1])
+                    except (ValueError, IndexError):
+                        pass
+            anchor = "comments_icon"
+            if "ANCHOR:" in last:
+                anchor = last.split("ANCHOR:")[-1].split("\n")[0].strip()
+            row = 0
+            if "row index" in last:
+                import re as _re
+                m = _re.search(r"row index (\d+)", last)
+                if m:
+                    row = int(m.group(1))
+            presets = {
+                "comments_icon": (int(w * 0.93), int(h * 0.52)),
+                "comment_heart": (int(w * 0.86), int(h * (0.55 + 0.07 * row))),
+                "nav_reels": (int(w * 0.30), int(h * 0.93)),
+            }
+            x, y = presets.get(anchor, (w // 2, h // 2))
+            action = "like_comment" if anchor == "comment_heart" else "tap"
+            return json.dumps({
+                "action": action,
+                "params": {"x": x, "y": y},
+                "confidence": 0.8,
+                "reason": f"mock ground {anchor}",
+            })
+
         # Agent step: return a valid action JSON.
         if "RETURN_ACTION_JSON" in last:
             goal = ""
@@ -73,16 +106,47 @@ class MockClient(LLMClient):
                     "needs_screenshot": False,
                     "approval_required": True,
                 }
-            elif "GOAL:" in last and ("reel" in goal or "reels_comment_likes" in goal):
-                action = {
-                    "action": "swipe",
-                    "params": {"direction": "up"},
-                    "say": "Next reel.",
-                    "reason": "Reels phase — scroll niche gym/outfit content.",
-                    "done": False,
-                    "needs_screenshot": False,
-                    "approval_required": False,
-                }
+            elif "GOAL:" in last and ("reel" in goal or "reels_comment_likes" in goal or "comment like" in goal):
+                if "screen_type=reels_viewer" in last and "comment_likes_this_reel" in last:
+                    action = {
+                        "action": "intent",
+                        "params": {"name": "open_comments"},
+                        "say": "Opening comments.",
+                        "reason": "On reels — open comments via intent.",
+                        "done": False,
+                        "needs_screenshot": False,
+                        "approval_required": False,
+                    }
+                elif "screen_type=comments_sheet" in last:
+                    action = {
+                        "action": "intent",
+                        "params": {"name": "engage_comments"},
+                        "say": "Liking a comment.",
+                        "reason": "On comments sheet.",
+                        "done": False,
+                        "needs_screenshot": False,
+                        "approval_required": False,
+                    }
+                elif "screen_type=home_feed" in last or "for you" in last.lower():
+                    action = {
+                        "action": "navigate",
+                        "params": {"tab": "reels"},
+                        "say": "Opening Reels tab.",
+                        "reason": "Home feed — navigate to Reels tab first.",
+                        "done": False,
+                        "needs_screenshot": False,
+                        "approval_required": False,
+                    }
+                else:
+                    action = {
+                        "action": "navigate",
+                        "params": {"tab": "reels"},
+                        "say": "Opening Reels tab.",
+                        "reason": "Reels work — navigate to Reels tab.",
+                        "done": False,
+                        "needs_screenshot": False,
+                        "approval_required": False,
+                    }
             elif goal and ("story" in goal or "stories" in goal):
                 action = {
                     "action": "view_story",

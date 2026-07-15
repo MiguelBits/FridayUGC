@@ -178,6 +178,87 @@ data class StepResponse(
 )
 
 @Serializable
+data class SomMark(
+    @SerialName("mark_id") val markId: Int,
+    val x: Int = 0,
+    val y: Int = 0,
+    val text: String = "",
+    @SerialName("element_id") val elementId: Int = -1,
+)
+
+@Serializable
+data class GroundRequest(
+    val anchor: String,
+    @SerialName("screenshot_b64") val screenshotB64: String,
+    @SerialName("screen_width") val screenWidth: Int = 0,
+    @SerialName("screen_height") val screenHeight: Int = 0,
+    @SerialName("screen_type") val screenType: String = "",
+    val elements: List<ScreenElement> = emptyList(),
+    @SerialName("row_index") val rowIndex: Int = 0,
+    @SerialName("som_marks") val somMarks: List<SomMark> = emptyList(),
+    @SerialName("use_som") val useSom: Boolean = true,
+    @SerialName("device_id") val deviceId: String = "",
+)
+
+@Serializable
+data class GroundResponse(
+    val action: String = "tap",
+    val params: Map<String, JsonElement> = emptyMap(),
+    val confidence: Float = 0f,
+    val reason: String = "",
+    @SerialName("needs_screenshot") val needsScreenshot: Boolean = false,
+)
+
+// --- Tick v2: thin-client loop ---
+
+@Serializable
+data class ObserveBundle(
+    val screen: Screen,
+    @SerialName("som_marks") val somMarks: List<SomMark> = emptyList(),
+    @SerialName("screen_width") val screenWidth: Int = 0,
+    @SerialName("screen_height") val screenHeight: Int = 0,
+    @SerialName("ig_version") val igVersion: String = "",
+)
+
+@Serializable
+data class TickLastResult(
+    val action: String = "",
+    @SerialName("executor_ok") val executorOk: Boolean = true,
+    val error: String? = null,
+    @SerialName("ui_key") val uiKey: String = "",
+    val params: Map<String, JsonElement> = emptyMap(),
+    @SerialName("before_observe") val beforeObserve: ObserveBundle? = null,
+    @SerialName("after_observe") val afterObserve: ObserveBundle? = null,
+    val verified: String? = null,
+    @SerialName("change_score") val changeScore: Float = 0f,
+)
+
+@Serializable
+data class TickRequest(
+    @SerialName("session_id") val sessionId: String,
+    @SerialName("device_id") val deviceId: String = "",
+    val goal: String,
+    val step: Int = 0,
+    val observe: ObserveBundle,
+    @SerialName("last_result") val lastResult: TickLastResult? = null,
+    val mode: String = "read_only",
+    @SerialName("session_context") val sessionContext: Map<String, JsonElement> = emptyMap(),
+)
+
+@Serializable
+data class TickResponse(
+    val action: String,
+    val params: Map<String, JsonElement> = emptyMap(),
+    val say: String? = null,
+    val reason: String = "",
+    val done: Boolean = false,
+    @SerialName("needs_screenshot") val needsScreenshot: Boolean = false,
+    @SerialName("approval_required") val approvalRequired: Boolean = false,
+    @SerialName("session_context") val sessionContext: Map<String, JsonElement> = emptyMap(),
+    val grounded: Boolean = false,
+)
+
+@Serializable
 data class IncomingMessage(
     @SerialName("message_id") val messageId: String,
     @SerialName("thread_id") val threadId: String = "",
@@ -374,6 +455,8 @@ data class VerifiedStepRecord(
     val error: String? = null,
     @SerialName("ig_version") val igVersion: String = "",
     val params: Map<String, String> = emptyMap(),
+    @SerialName("screenshot_b64") val screenshotB64: String? = null,
+    val anchor: String = "",
 )
 
 @Serializable

@@ -31,6 +31,10 @@ def _ledger_path() -> Path:
     return _LEDGER_PATH
 
 
+def _today_utc() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
 class InboxStore:
     def load(self) -> InboxLedger:
         path = _ledger_path()
@@ -44,12 +48,12 @@ class InboxStore:
         path.write_text(ledger.model_dump_json(indent=2), encoding="utf-8")
 
     def replies_on_date(self, d: date | None = None) -> list[ReplyRecord]:
-        day = (d or date.today()).isoformat()
+        day = (d or datetime.now(timezone.utc).date()).isoformat()
         return [r for r in self.load().replies if r.date == day]
 
     def user_replies_today(self, user: str, channel: str | None = None) -> int:
         u = user.lower().lstrip("@")
-        today = date.today().isoformat()
+        today = _today_utc()
         return sum(
             1
             for r in self.load().replies
@@ -82,7 +86,7 @@ class InboxStore:
                 channel=channel,
                 message_id=message_id,
                 thread_id=thread_id,
-                date=now.date().isoformat(),
+                date=_today_utc(),
                 at=now.isoformat(),
                 text_preview=text_sent[:120],
             )

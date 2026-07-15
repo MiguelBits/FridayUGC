@@ -8,6 +8,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.view.Display
+import com.miguelbits.fridayugc.model.Screen
+import com.miguelbits.fridayugc.model.SomMark
 import java.io.ByteArrayOutputStream
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -15,9 +17,54 @@ import kotlin.coroutines.suspendCoroutine
 /** Accessibility screenshot for the brain (eyes) — Android 11+. */
 object ScreenCapture {
 
-    suspend fun captureBase64(service: AccessibilityService, maxSide: Int = 768): String? {
+    data class SomCapture(
+        val screenshotB64: String,
+        val somMarks: List<SomMark>,
+        val imageWidth: Int = 0,
+        val imageHeight: Int = 0,
+    )
+
+    suspend fun captureBase64(service: AccessibilityService, maxSide: Int = 768): String? =
+        captureForGrounding(service, null, maxSide)?.screenshotB64
+
+    /** Capture screenshot with optional Set-of-Marks overlay for vision grounding. */
+    suspend fun captureForGrounding(
+        service: AccessibilityService,
+        screen: Screen?,
+        maxSide: Int = 768,
+        useSom: Boolean = true,
+    ): SomCapture? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
-        return suspendCoroutine { cont ->
+        val bitmap = captureBitmap(service) ?: return null
+        val dm = service.resources.displayMetrics
+        return try {
+            val scaled = scaleDown(bitmap, maxSide)
+            if (scaled !== bitmap) bitmap.recycle()
+            val (toEncode, marks) = if (useSom && screen != null && screen.elements.isNotEmpty()) {
+                val annotated = SetOfMarks.annotate(scaled, screen, dm.widthPixels, dm.heightPixels)
+                if (annotated.bitmap !== scaled) scaled.recycle()
+                annotated.bitmap to annotated.marks
+            } else {
+                scaled to emptyList()
+            }
+            val out = ByteArrayOutputStream()
+            val iw = toEncode.width
+            val ih = toEncode.height
+            toEncode.compress(Bitmap.CompressFormat.JPEG, 72, out)
+            toEncode.recycle()
+            SomCapture(
+                screenshotB64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP),
+                somMarks = marks,
+                imageWidth = iw,
+                imageHeight = ih,
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private suspend fun captureBitmap(service: AccessibilityService): Bitmap? =
+        suspendCoroutine { cont ->
             val handler = Handler(Looper.getMainLooper())
             service.takeScreenshot(
                 Display.DEFAULT_DISPLAY,
@@ -29,16 +76,7 @@ object ScreenCapture {
                             val bmp = Bitmap.wrapHardwareBuffer(hw, result.colorSpace)
                                 ?.copy(Bitmap.Config.ARGB_8888, false)
                             hw.close()
-                            if (bmp == null) {
-                                cont.resume(null)
-                                return
-                            }
-                            val scaled = scaleDown(bmp, maxSide)
-                            if (scaled !== bmp) bmp.recycle()
-                            val out = ByteArrayOutputStream()
-                            scaled.compress(Bitmap.CompressFormat.JPEG, 72, out)
-                            scaled.recycle()
-                            cont.resume(Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
+                            cont.resume(bmp)
                         } catch (_: Exception) {
                             cont.resume(null)
                         }
@@ -50,7 +88,6 @@ object ScreenCapture {
                 },
             )
         }
-    }
 
     private fun scaleDown(src: Bitmap, maxSide: Int): Bitmap {
         val w = src.width
