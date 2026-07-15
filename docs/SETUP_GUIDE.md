@@ -1,15 +1,13 @@
 # Friday UGC — Setup Guide (start here)
 
 This is the end-to-end walkthrough. Realistic time: ~1 focused evening for the first run.
-There is no true "one file and it works" for an autonomous phone agent — but this gets you to
-**deploy once, install one APK, flip 3 toggles, run.**
 
 ## Overview of the 4 phases
 
 1. Test the brain locally (no GPU) — 10 min.
-2. Deploy the brain to AWS GPU — 30–45 min.
-3. Build + install the Android APK — 20 min.
-4. Grant permissions, test on a throwaway IG, then point at `@itslorenamor`.
+2. Deploy the brain to AWS GPU (optional) — 30–45 min.
+3. Connect phone via USB ADB — 10 min.
+4. Run the ADB executor on a throwaway IG account, then `@itslorenamor`.
 
 ---
 
@@ -33,50 +31,70 @@ curl -s -X POST localhost:8080/ugc/caption -H "Authorization: Bearer test-token"
   -H "content-type: application/json" -d '{"context":"dressing room black ribbed dress","cta":1}'
 ```
 
-## Phase 2 — Deploy the brain to AWS GPU
+## Phase 2 — Deploy the brain to AWS GPU (optional)
 
-See `AWS_DEPLOY.md`. Short version:
+See `AWS_DEPLOY.md`. The ADB executor can target a remote brain via `--brain-url`.
+
+## Phase 3 — USB ADB setup
+
+1. Install [Android platform-tools](https://developer.android.com/tools/releases/platform-tools) (`adb` on PATH).
+2. On the phone: **Developer options** → enable **USB debugging**.
+3. Connect USB; accept the RSA fingerprint prompt on the phone.
+4. Verify:
 
 ```bash
-aws cloudformation deploy --template-file infra/cloudformation/friday-brain.yaml \
-  --stack-name friday-brain --capabilities CAPABILITY_IAM \
-  --parameter-overrides KeyName=YOUR_KEY MyIpCidr=YOUR_IP/32 HfToken=hf_xxx \
-  FridayApiToken=YOUR_LONG_TOKEN GemmaModel=google/gemma-4-12b-it
+adb devices
 ```
 
-Grab the `BrainApiUrl` output — that's what the phone talks to.
+Expected: one device with state `device` (not `unauthorized`).
 
-## Phase 3 — Build the Android APK
+Optional session prep (executor runs this automatically):
 
-Two options (see `ANDROID_BUILD.md`):
+```bash
+adb shell settings put system screen_off_timeout 2147483647 && adb shell svc power stayon usb && adb shell input keyevent KEYCODE_WAKEUP
+```
 
-- **CI (recommended):** push to GitHub → run the `android-apk` workflow with your `brain_url` →
-  download the APK from the run's Artifacts.
-- **Local:** open `android/` in Android Studio, then
-  `./gradlew assembleDebug -Pfriday.brainUrl=YOUR_URL -Pfriday.apiToken=YOUR_TOKEN`.
+## Phase 4 — Run the ADB executor
 
-## Phase 4 — Install + run on the phone
+From repo root with brain venv active:
 
-1. Sideload the APK (enable "install unknown apps" for your browser/file manager).
-2. Open Friday → **Enable Accessibility** → turn on "Friday UGC Agent".
-3. Settings → Battery → set Friday to **Unrestricted**.
-4. Tap **Check brain** (should say OK).
-5. Type a goal like *"Open Instagram and scroll the feed for 30 seconds"* → **Run goal**.
-6. Test engagement/posting on a **throwaway account first**. Only then point at `@itslorenamor`.
+```bash
+export FRIDAY_API_TOKEN=your-token
+python -m brain.adb.run \
+  --brain-url http://127.0.0.1:8080 \
+  --goal "Open Instagram and scroll Reels" \
+  --mode read_only \
+  --max-steps 20
+```
+
+Comment-likes routine (requires vision grounding):
+
+```bash
+FRIDAY_GROUNDING_ENABLED=true python -m brain.adb.run \
+  --routine reels_comment_likes \
+  --mode full \
+  --max-steps 60
+```
+
+Flags: see [`brain/adb/README.md`](../brain/adb/README.md).
+
+Test engagement/posting on a **throwaway account first**. Only then point at `@itslorenamor`.
 
 ---
 
 ## The full "Friday runs my account" loop
 
-- **Voice command:** speak/type a goal → brain plans → phone executes → Friday narrates aloud.
-- **Autonomous:** schedule goals (WorkManager on device, or a cron that calls the brain). Keep
+- **Manual goal:** pass `--goal` to the ADB executor; brain plans; PC executes via ADB.
+- **Autonomous:** schedule executor runs (cron) or use the brain operator API. Keep
   `post/comment/dm/follow` approval-gated until you trust it. See `SAFETY_AND_BANS.md`.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |--------|-----|
-| Brain: unreachable | Check `BRAIN_URL`, AWS security group allows your IP, port 8080 open |
-| Nothing happens on screen | Accessibility service not enabled, or app blocks a11y |
-| Stuck repeating an action | Loop detection triggers a recovery; if persistent, the UI changed |
-| IG login checkpoint | Expected on automation; log in manually once, avoid aggressive pacing |
+| Brain: unreachable | Check `--brain-url`, AWS security group, port 8080 |
+| `adb devices` empty | Replug USB; enable USB debugging; try another cable |
+| `unauthorized` | Accept RSA prompt on phone |
+| Black screenshot | Unlock phone; avoid IG login/checkpoint screens |
+| Nothing taps | Check read_only mode; verify brain returns `tap` with x,y |
+| Multiple devices | Pass `--serial` from `adb devices -l` |

@@ -1,56 +1,38 @@
 # Friday UGC
-$ cd ~/Desktop/Github_MiguelBits/FridayUGC/android && ./gradlew assembleDebug && cd app/build/outputs/apk/debug && python -m http.server 8765 --bind 0.0.0.0
 
-cd ~/Desktop/Github_MiguelBits/FridayUGC/brain && source .venv/Scripts/activate && uvicorn app.main:app --host 0.0.0.0 --port 8080
-
-**Friday** is an autonomous UGC (user-generated content) operator for the **Lorena Mor** AI persona. A **remote brain** (FastAPI + Gemma on AWS GPU via vLLM) plans each step; an **Android accessibility agent** reads the screen and executes taps, scrolls, and posts on Instagram (`@itslorenamor`).
+**Friday** is an autonomous UGC (user-generated content) operator for the **Lorena Mor** AI persona. A **remote brain** (FastAPI + Gemma on AWS GPU via vLLM) plans each step; a **USB ADB executor** on the same PC reads the screen and performs taps, scrolls, and posts on Instagram (`@itslorenamor`).
 
 ```
-You / schedule ──▶ Gemma brain (AWS GPU) ──▶ Android agent (Accessibility) ──▶ Instagram
+You / schedule ──▶ Gemma brain (local or AWS GPU) ──▶ ADB executor (PC) ──USB──▶ Phone / Instagram
                         ▲                                    │
-                        └──────── screen state / result ─────┘
+                        └──────── observe / tick / result ───┘
 ```
 
 ## What this repo contains
 
 | Path | Role |
 |------|------|
-| [`brain/`](brain/) | Python FastAPI service — persona, agent loop, RAG, voice, learning/eval |
-| [`android/`](android/) | Kotlin agent — Accessibility executor, brain client, voice, foreground service |
+| [`brain/`](brain/) | Python FastAPI service — persona, agent loop, RAG, learning/eval |
+| [`brain/adb/`](brain/adb/) | USB ADB executor — screencap, motor actions, thin tick loop |
 | [`infra/`](infra/) | AWS deploy — CloudFormation GPU box + Docker Compose for vLLM |
-| [`shared/`](shared/) | JSON action protocol between phone and brain |
-| [`docs/`](docs/) | Setup, architecture, safety, AWS/Android build, portfolio mapping |
-| [`.github/workflows/`](.github/workflows/) | CI — brain pytest on push; signed APK build |
+| [`shared/`](shared/) | JSON action protocol between executor and brain |
+| [`docs/`](docs/) | Setup, architecture, safety, ADB migration, portfolio mapping |
+| [`.github/workflows/`](.github/workflows/) | CI — brain pytest on push |
 
 ## Eval results
 
-Last run: **2026-07-14** (local, `FRIDAY_LLM_PROVIDER=mock` — no GPU required).
+Last run: **2026-07-15** (local, `FRIDAY_LLM_PROVIDER=mock` — no GPU required).
 
 ### Brain (pytest)
 
-| Suite | Tests | Passed | What it validates |
-|-------|------:|-------:|-------------------|
-| **Agent eval harness** | 12 | 12 | Frozen IG scenarios + router-level vision/reels entry (agentevals-style matchers) |
-| Retrieval / RAG | 11 | 11 | Gallery + caption index, hybrid BM25+vector fusion, pillar diversity |
-| Trajectory eval | 4 | 4 | Subset/superset action matching utilities |
-| Learning loop | 5 | 5 | Verified trajectories, device memory, eval reports |
-| Smoke / API | 20 | 20 | Endpoints, inbox evaluate, protocol wiring |
-| Perception + navigation | 16 | 16 | Screen parsing, reels routing, protocol parity |
-| **Total** | **92** | **92** | |
-
-**Agent scenario coverage** (`brain/tests/fixtures/agent_scenarios/`):
-
-| Scenario | Expected behavior |
-|----------|-------------------|
-| `opens_instagram_from_launcher` | Launch Instagram when not foreground |
-| `scrolls_when_instagram_open` | Scroll feed when IG is open |
-| `navigate_to_inbox` | Open inbox from home |
-| `read_only_blocks_like` | Read-only mode blocks like mutations |
-| `budget_blocks_extra_likes` | Session like budget enforced server-side |
-| `post_requires_approval` | Post action requires human approval |
-| `vision_on_ambiguous_sparse_tree` | Failed/unverified step → brain requests screenshot |
-| `eager_reels_entry_from_home` | Comment-likes goal → navigate Reels before LLM |
-| `reels_goal_allows_navigate_or_intent` | Flexible subset match for Reels entry actions |
+| Suite | What it validates |
+|-------|-------------------|
+| Agent eval harness | Frozen IG scenarios + router-level vision/reels entry |
+| ADB executor / loop | Mocked subprocess + tick loop, read_only, circuit breaker |
+| Retrieval / RAG | Gallery + caption index, hybrid BM25+vector fusion |
+| Learning loop | Verified trajectories, device memory, eval reports |
+| Smoke / API | Endpoints, inbox evaluate, protocol wiring |
+| Perception + tick | Screen parsing, reels routing, thin-client tick |
 
 Reproduce:
 
@@ -59,39 +41,17 @@ cd brain && python -m venv .venv && source .venv/bin/activate && pip install -r 
 FRIDAY_LLM_PROVIDER=mock FRIDAY_API_TOKEN=test-token pytest -q
 ```
 
-Agent eval only:
-
-```bash
-cd brain && FRIDAY_LLM_PROVIDER=mock FRIDAY_API_TOKEN=test-token pytest tests/test_agent_eval.py -v
-```
-
-### Android (unit tests)
-
-| Suite | Tests | Passed |
-|-------|------:|-------:|
-| ScreenClassifier | 5 | 5 |
-| ScreenValidator | 4 | 4 |
-| OutcomeVerifier | 4 | 4 |
-| AgentNotificationManager | 1 | 1 |
-| **Total** | **14** | **14** |
-
-Reproduce:
-
-```bash
-cd android && ./gradlew testDebugUnitTest
-```
-
 CI runs the full brain suite on every push to `brain/**` (see [`.github/workflows/brain-ci.yml`](.github/workflows/brain-ci.yml)).
 
 ## Architecture highlights
 
-- **Remote brain / local hands** — phone sends accessibility tree; brain returns one JSON action per step.
-- **Server-side guards** — read-only mode, session budgets, and approval gates for `post`, `comment`, `dm`, `follow` (not prompt-only).
-- **RAG** — gallery curation + caption style retrieval with hybrid BM25+vector search over SQLite ([`brain/app/retrieval/`](brain/app/retrieval/)).
+- **Remote brain / local hands** — PC captures screenshots via ADB; brain returns one JSON action per tick.
+- **Server-side guards** — read-only mode, session budgets, and approval gates for `post`, `comment`, `dm`, `follow`.
+- **RAG** — gallery curation + caption style retrieval ([`brain/app/retrieval/`](brain/app/retrieval/)).
 - **Observability** — per-step session traces at `GET /runs`, `GET /runs/{id}`, `GET /runs/metrics`.
 - **Mock LLM** — full pipeline in CI without GPU (`FRIDAY_LLM_PROVIDER=mock`).
 
-Deeper docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/TECH_STACK.md`](docs/TECH_STACK.md), [`docs/CASE_STUDY.md`](docs/CASE_STUDY.md).
+Deeper docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/TECH_STACK.md`](docs/TECH_STACK.md), [`docs/ADB_MIGRATION.md`](docs/ADB_MIGRATION.md).
 
 ## Quick start
 
@@ -103,11 +63,16 @@ cd brain
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # edit FRIDAY_API_TOKEN
-FRIDAY_LLM_PROVIDER=mock uvicorn app.main:app --reload
+FRIDAY_LLM_PROVIDER=mock uvicorn app.main:app --reload --port 8080
 
-# 2. Android APK — see docs/ANDROID_BUILD.md or GitHub Actions workflow
-# 3. AWS GPU deploy — see docs/AWS_DEPLOY.md
+# 2. Phone — enable USB debugging, verify: adb devices
+
+# 3. ADB executor (from repo root, brain venv active)
+export FRIDAY_API_TOKEN=your-token
+python -m brain.adb.run --goal "Open Instagram and scroll Reels" --mode read_only
 ```
+
+See [`brain/adb/README.md`](brain/adb/README.md) for flags and troubleshooting.
 
 Copy [`brain/.env.example`](brain/.env.example) to `brain/.env`. Never commit `.env`, `apitoken.txt`, or `*.pem`.
 
@@ -122,7 +87,7 @@ Instagram automation on a real account carries **ban risk**. Friday defaults to 
 | Tools & job-post mapping | [`docs/TECH_STACK.md`](docs/TECH_STACK.md) |
 | Role mapping (PT) | [`docs/JOB_APPLICATION_MAPPING.md`](docs/JOB_APPLICATION_MAPPING.md) |
 | Case study template | [`docs/CASE_STUDY.md`](docs/CASE_STUDY.md) |
-| Microsoft Agent Framework | [`docs/MAF_SETUP.md`](docs/MAF_SETUP.md) |
+| ADB migration record | [`docs/ADB_MIGRATION.md`](docs/ADB_MIGRATION.md) |
 | Example session trace | [`brain/data/runs/example_session.json`](brain/data/runs/example_session.json) |
 
 ## License

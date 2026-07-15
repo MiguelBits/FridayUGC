@@ -1,13 +1,13 @@
-# Friday Action Protocol (phone ⇄ brain)
+# Friday Action Protocol (executor ⇄ brain)
 
-The phone stays "dumb": it captures screen state, sends it to the brain, receives **one action**,
-executes it, and repeats. The brain (Gemma 4) never touches the phone directly — it only returns
-structured JSON that the Android `ActionExecutor` knows how to run.
+The executor stays "dumb": it captures screen state via ADB, sends it to the brain, receives **one action**,
+executes it with `adb shell input`, and repeats. The brain (Gemma) never touches the phone directly — it only returns
+structured JSON that the PC ADB executor (`brain/adb/executor.py`) knows how to run.
 
-This contract is the single source of truth. `brain/app/agent/actions.py` and the Android
-`ActionExecutor.kt` must both conform to it.
+This contract is the single source of truth. `brain/app/agent/actions.py` and `brain/adb/executor.py`
+must both conform to it.
 
-## 1. Phone → Brain: `POST /agent/step`
+## 1. Executor → Brain: `POST /agent/step` (legacy)
 
 ```json
 {
@@ -38,17 +38,16 @@ This contract is the single source of truth. `brain/app/agent/actions.py` and th
 }
 ```
 
-`mode` is `"read_only"` (default, safe) or `"full"`. In read-only mode the brain and phone block
+`mode` is `"read_only"` (default, safe) or `"full"`. In read-only mode the brain and executor block
 `post`, `comment`, `dm`, `follow`, `like`, `like_story`, `save`, and `type` — use this for throwaway
 accounts and the first week on `@itslorenamor` (scroll + observe + draft captions only).
 
-`session_context` carries per-session engagement budgets. The phone increments counters after each
-successful action; the brain enforces caps and switches phases (reels → stories → feed → inbox).
+`session_context` carries per-session engagement budgets. The brain enforces caps and switches phases (reels → stories → feed → inbox); the executor forwards updated context each tick.
 
 `screenshot_b64` is optional and only sent when the brain requests vision (Reels/Stories/WebViews
 where the accessibility tree is weak). Keep it null by default to save bandwidth + latency.
 
-## 2. Brain → Phone: response
+## 2. Brain → Executor: response
 
 ```json
 {
@@ -62,15 +61,15 @@ where the accessibility tree is weak). Keep it null by default to save bandwidth
 }
 ```
 
-- `say` — optional text Friday speaks aloud (female TTS). Keep short.
-- `approval_required` — if `true`, the phone must get user confirmation before executing
+- `say` — optional text for logging (ADB executor does not use TTS). Keep short.
+- `approval_required` — if `true`, the executor must get user confirmation before executing
   (used for `post`, `comment`, `dm`, `follow` on the real account by default).
 - `needs_screenshot` — if `true`, the phone re-sends the same step with `screenshot_b64` filled.
 - `done` — task complete; phone stops the loop.
 
 ## 3. Supported actions
 
-| action | params | phone behavior |
+| action | params | executor behavior (ADB) |
 |--------|--------|----------------|
 | `tap` | `{ "target_id": int }` or `{ "x": int, "y": int }` | click node / gesture tap |
 | `scroll` | `{ "direction": "up\|down\|left\|right", "target_id": int? }` | `ACTION_SCROLL_*` or swipe |
@@ -107,8 +106,8 @@ session (reels scroll, story likes, feed engagement, selective inbox, comment re
 }
 ```
 
-Response includes `goal`, `session_context` (budget caps), and `checklist`. The Android app calls this
-then runs the standard `/agent/step` loop with `session_context` on every step.
+Response includes `goal`, `session_context` (budget caps), and `checklist`. The ADB executor calls this
+then runs the `/agent/tick` loop with `session_context` on every step.
 
 ## 5. UGC content endpoints (not part of the step loop)
 
@@ -123,7 +122,7 @@ See `brain/app/ugc/schemas.py` for exact request/response shapes.
 
 ## 6. Vision grounding (Gemma 3, local)
 
-`POST /agent/ground` — phone sends screenshot + anchor (+ optional `som_marks` from Set-of-Marks overlay); brain returns tap coordinates or resolves `mark_id` to x,y.
+`POST /agent/ground` — executor sends screenshot + anchor (+ optional `som_marks` from Set-of-Marks overlay); brain returns tap coordinates or resolves `mark_id` to x,y.
 Used when accessibility tree and device memory cannot bind icon-only Instagram UI.
 No OpenAI key required — uses `FRIDAY_VISION_MODEL` (default `google/gemma-3-12b-it`) on vLLM.
 
@@ -131,11 +130,11 @@ GroundRequest fields: `som_marks[]` with `{mark_id, x, y, text, element_id}`, `u
 
 ## 7. Thin-client tick loop (preferred)
 
-`POST /agent/tick` — phone sends **observe** (current screen + optional screenshot/SOM) and **last_result**
+`POST /agent/tick` — executor sends **observe** (current screen + optional screenshot/SOM) and **last_result**
 (before/after bundle from the previous executed action). Brain verifies the last step, updates authoritative
 `session_context`, plans the next move, inline-grounds vision targets, and returns one atomic action.
 
-Phone must **not** call `/agent/ground` or resolve `intent` locally when using tick mode.
+The executor must **not** call `/agent/ground` or resolve `intent` locally when using tick mode.
 
 ```json
 {
@@ -164,4 +163,4 @@ Phone must **not** call `/agent/ground` or resolve `intent` locally when using t
 
 Response adds `session_context` (brain-owned budgets/phases) and `grounded: true` when vision produced x,y.
 
-Legacy `POST /agent/step` remains for compatibility; new Android builds use `ThinAgentLoop` → `/agent/tick` only.
+Legacy `POST /agent/step` remains for compatibility; the ADB executor uses `brain.adb.loop` → `/agent/tick` only.

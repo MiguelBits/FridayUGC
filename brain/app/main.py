@@ -90,7 +90,7 @@ app = FastAPI(title="Friday UGC Brain", version="0.2.0")
 
 
 async def require_token(authorization: str | None = Header(default=None)) -> None:
-    """Simple bearer-token gate. The Android agent sends Authorization: Bearer <token>."""
+    """Simple bearer-token gate. The ADB executor sends Authorization: Bearer <token>."""
     settings = get_settings()
     expected = f"Bearer {settings.api_token}"
     if authorization != expected:
