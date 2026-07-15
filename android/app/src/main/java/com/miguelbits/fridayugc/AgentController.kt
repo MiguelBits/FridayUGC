@@ -121,24 +121,7 @@ class AgentController(
 
         if (goalWantsInstagram(goal)) ensureInstagramOpen(svc)
 
-        val wantsCommentLikes = goalWantsCommentLikes(goal)
-        if (wantsCommentLikes) tracker.phase = "reels_comment_likes"
-
-        val appCtx = svc.applicationContext
-        val deviceId = FridayPreferences.deviceId(appCtx)
-        val memoryStore = DeviceMemoryStore(appCtx)
-        runCatching { memoryStore.hydrateFromBrain(brain, deviceId) }
-            .onFailure { onSay("Memory hydrate skipped: ${it.message}") }
-        svc.executor.attachMemory(memoryStore)
-
-        if (wantsCommentLikes && !tracker.reelsTabOpened) {
-            onSay("Preflight: entering Reels (deep link → vision)…")
-            val entry = ReelsEntry.enter(svc, brain) { onSay(it) }
-            tracker.reelsTabOpened = entry.reelsTabOpened
-            if (!tracker.reelsTabOpened) {
-                onSay("Preflight Reels entry not confirmed (${entry.screenType}) — routine will retry.")
-            }
-        }
+        if (goalWantsCommentLikes(goal)) tracker.phase = "reels_comment_likes"
 
         if (goalWantsPosting(goal)) {
             val prefs = svc.applicationContext.getSharedPreferences("friday_gallery", android.content.Context.MODE_PRIVATE)
@@ -161,164 +144,23 @@ class AgentController(
             }
         }
 
-        val history = ArrayList<String>()
-        var last: LastResult? = null
-        val wantsIg = goalWantsInstagram(goal)
-        val intentResolver = IntentResolver(svc, brain)
-        val reporter = VerifiedStepReporter(brain, memoryStore, deviceId, voiceScope)
-        var stepEnteredAt = System.currentTimeMillis()
-        lastIntentUiKey = null
-        lastIntentReground = 0
-        forceVisionRetry = false
-        anchorVerifyFails.clear()
-
-        for (step in 0 until maxSteps) {
-            if (shouldStop()) {
-                onSay("Stopped by kill switch.")
-                onProgress(AgentProgress.SessionEnded(ok = false, reason = "Kill switch"))
-                return false
-            }
-            if (consecutiveFailures >= 8) {
-                onSay("Circuit breaker tripped.")
-                onProgress(AgentProgress.SessionEnded(ok = false, reason = "Circuit breaker"))
-                return false
-            }
-
-            if (consecutiveFailures >= 5 && consecutiveFailures % 5 == 0) {
-                onSay("Stuck — recovery (back + wait)…")
-                svc.executor.execute(
-                    StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
-                )
-                delay(900)
-                consecutiveFailures = 0
-                continue
-            }
-
-            val activity = svc.currentActivityClass()
-            var base = svc.readScreen().copy(activity = activity)
-            var screenState = ScreenClassifier.classify(base, activity)
-            if (wantsCommentLikes && screenState.screenType == "story_viewer") {
-                onSay("Stories open — pressing back…")
-                svc.executor.execute(
-                    StepResponse(action = "press", params = mapOf("key" to JsonPrimitive("back"))),
-                )
-                delay(900)
-                base = svc.readScreen().copy(activity = svc.currentActivityClass())
-                screenState = ScreenClassifier.classify(base, svc.currentActivityClass())
-                tracker.reelsTabOpened = false
-            }
-            if (wantsCommentLikes) {
-                syncReelsTabState(base, screenState)
-            }
-            val fingerprint = ScreenValidator.fingerprint(base)
-            val stale = ScreenValidator.isStale(lastFingerprint, fingerprint)
-            lastFingerprint = fingerprint
-
-            svc.updateDebugOverlay(base, FridayPreferences.debugOverlay(svc.applicationContext))
-
-            val wantScreenshot = wantsIg && !wantsCommentLikes && (
-                screenState.screenType in instagramVisionScreens ||
-                screenState.needsVision ||
-                last?.ok == false ||
-                last?.verified in setOf("failed", "unverified") ||
-                screenState.confidence < 0.55f ||
-                base.elements.size < 12
-            )
-            var screen = if (wantScreenshot) {
-                onSay("Sending screenshot to brain…")
-                onProgress(AgentProgress.StepThinking(step, withScreenshot = true))
-                val cap = ScreenCapture.captureForGrounding(
-                    svc,
-                    base,
-                    useSom = false,
-                )
-                if (cap != null) base.copy(screenshotB64 = cap.screenshotB64) else base
-            } else {
-                base
-            }
-
-            val dwellMs = (System.currentTimeMillis() - stepEnteredAt).coerceAtMost(60_000)
-            stepEnteredAt = System.currentTimeMillis()
-            val contextWithDwell = tracker.toContext() + mapOf(
-                "dwell_on_screen_ms" to JsonPrimitive(dwellMs),
-            )
-
-            val req = StepRequest(
-                sessionId = sessionId,
-                goal = goal,
-                step = step,
-                screen = screen,
-                lastResult = last,
-                history = history.takeLast(12),
-                mode = mode,
-                deviceId = deviceId,
-                screenFingerprint = fingerprint,
-                screenState = screenState,
-                sessionContext = contextWithDwell,
-            )
-
-            onSay("Thinking… step ${step + 1}")
-            onProgress(AgentProgress.StepThinking(step))
-
-            val onInstagram = screen.app.contains("instagram", ignoreCase = true) ||
-                svc.currentPackage().contains("instagram", ignoreCase = true)
-            if (onInstagram && screen.app.isBlank()) {
-                val pkg = svc.currentPackage()
-                screen = screen.copy(app = pkg)
-                base = base.copy(app = pkg)
-            }
-
-            val useRoutine = wantsCommentLikes
-            val resp: StepResponse? = if (useRoutine) {
-                val routineStep = CommentLikesRoutine.nextStep(
-                    tracker,
-                    if (screen.screenshotB64 != null) screen else base,
-                    screenState,
-                    svc.resources.displayMetrics,
-                )
-                if (routineStep != null) {
-                    onSay("Routine → ${routineStep.action}")
-                    routineStep
-                } else {
-                    onSay("Routine returned no step — stopping.")
-                    StepResponse(action = "fail", reason = "comment-likes routine exhausted")
-                }
-            } else {
-                fetchBrainStep(req)
-            }
-            if (resp == null) return false
-
-            var finalResp = resp
-
-            if (!useRoutine && finalResp.needsScreenshot && screen.screenshotB64.isNullOrBlank()) {
-                onSay("Brain requested screenshot — recapturing…")
-                val cap = ScreenCapture.captureForGrounding(
-                    svc,
-                    base,
-                    useSom = false,
-                )
-                if (cap != null) {
-                    screen = base.copy(screenshotB64 = cap.screenshotB64)
-                    finalResp = runCatching { brain.step(req.copy(screen = screen)) }.getOrElse {
-                        onSay("Brain unreachable on retry: ${it.message}")
-                        return false
-                    }
-                }
-            }
-
-            val outcome = handleStep(
-                svc, goal, step, finalResp, screen, history, last, wantsIg, wantsCommentLikes, stale,
-                reporter, fingerprint, intentResolver, memoryStore, deviceId,
-            )
-            last = outcome.lastResult
-            if (outcome.terminal != null) {
-                onProgress(AgentProgress.SessionEnded(ok = outcome.terminal, reason = if (outcome.terminal) "Done" else "Stopped"))
-                return outcome.terminal
-            }
-        }
-        onSay("Reached step limit; stopping to stay safe.")
-        onProgress(AgentProgress.SessionEnded(ok = false, reason = "Step limit"))
-        return false
+        return ThinAgentLoop(
+            svc = svc,
+            brain = brain,
+            voice = voice,
+            tracker = tracker,
+            mode = mode,
+            sessionId = sessionId,
+            goal = goal,
+            maxSteps = maxSteps,
+            autonomous = autonomous,
+            taskId = taskId,
+            onSay = onSay,
+            onProgress = onProgress,
+            onCheckpoint = onCheckpoint,
+            onApproval = onApproval,
+            shouldStop = shouldStop,
+        ).run()
     }
 
     private data class StepOutcome(val terminal: Boolean?, val lastResult: LastResult?)
@@ -632,7 +474,7 @@ class AgentController(
             svc.currentActivityClass(),
         )
 
-        val onCommentsSheet = afterState.screenType == "comments_sheet"
+        val onCommentsSheet = ScreenClassifier.isFullCommentsSheet(afterScreen, svc.currentActivityClass())
         val countsForBudget = !wantsCommentLikes ||
             verification.status == "verified" ||
             finalAction !in setOf("tap", "like_comment") ||

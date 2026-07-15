@@ -130,3 +130,56 @@ class GroundResponse(BaseModel):
     confidence: float = 0.0
     reason: str = ""
     needs_screenshot: bool = False
+
+
+# --- Tick v2: thin-client loop (phone = eyes + hands, brain = operator) ---
+
+
+class ObserveBundle(BaseModel):
+    """Current screen snapshot from phone."""
+
+    screen: Screen
+    som_marks: list[SomMark] = Field(default_factory=list)
+    screen_width: int = 0
+    screen_height: int = 0
+    ig_version: str = ""
+
+
+class TickLastResult(BaseModel):
+    """Outcome of the previous executed motor action."""
+
+    action: str = ""
+    executor_ok: bool = True
+    error: Optional[str] = None
+    ui_key: str = ""
+    params: dict[str, Any] = Field(default_factory=dict)
+    before_observe: Optional[ObserveBundle] = None
+    after_observe: Optional[ObserveBundle] = None
+    verified: Optional[str] = None
+    change_score: float = 0.0
+
+
+class TickRequest(BaseModel):
+    session_id: str
+    device_id: str = ""
+    goal: str
+    step: int = 0
+    observe: ObserveBundle
+    last_result: Optional[TickLastResult] = None
+    mode: OperatingMode = "read_only"
+    session_context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional seed; brain SessionStore is authoritative after tick 0",
+    )
+
+
+class TickResponse(BaseModel):
+    action: ActionName
+    params: dict[str, Any] = Field(default_factory=dict)
+    say: Optional[str] = None
+    reason: str = ""
+    done: bool = False
+    needs_screenshot: bool = False
+    approval_required: bool = False
+    session_context: dict[str, Any] = Field(default_factory=dict)
+    grounded: bool = False

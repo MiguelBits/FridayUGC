@@ -88,7 +88,7 @@ object CommentLikesRoutine {
 
             else -> { // PHASE_ON_REELS
                 if (!ScreenClassifier.likelyReelsSurface(screenState, screen) &&
-                    screenState.screenType != "comments_sheet"
+                    !ScreenClassifier.isFullCommentsSheet(screen, screenState.activityClass)
                 ) {
                     return StepResponse(
                         action = "intent",
@@ -118,7 +118,9 @@ object CommentLikesRoutine {
                         reason = "routine next_reel",
                     )
                 }
-                if (screenState.screenType == "comments_sheet" || tracker.commentsSheetOpen) {
+                if (ScreenClassifier.isFullCommentsSheet(screen, screenState.activityClass) ||
+                    tracker.commentsSheetOpen
+                ) {
                     tracker.commentLikesPhase = PHASE_IN_COMMENTS
                     tracker.commentsSheetOpen = true
                     return nextStep(tracker, screen, screenState, dm)

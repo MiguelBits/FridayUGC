@@ -30,6 +30,44 @@ def has_home_feed_tabs(screen: Screen) -> bool:
     return False
 
 
+def _texts(screen: Screen) -> list[str]:
+    return [e.text.lower() for e in screen.elements]
+
+
+def has_comments_sheet_signals(screen: Screen) -> bool:
+    texts = _texts(screen)
+    if any("reply" in t for t in texts):
+        return True
+    if any("view" in t and "comment" in t for t in texts):
+        return True
+    if any("view all" in t for t in texts):
+        return True
+    has_composer = any("add comment" in t or "add a comment" in t for t in texts)
+    if has_composer and len(screen.elements) >= 8:
+        return True
+    if any("comments" in t and "selected" not in t for t in texts) and len(screen.elements) >= 6:
+        return True
+    return False
+
+
+def is_reel_overlay_composer_only(screen: Screen, activity: str = "") -> bool:
+    texts = _texts(screen)
+    has_composer = any("add comment" in t or "add a comment" in t for t in texts)
+    if not has_composer:
+        return False
+    activity_lower = (activity or screen.activity or "").lower()
+    on_reels = "clips" in activity_lower or ("reel" in activity_lower and "profile" not in activity_lower)
+    if not on_reels:
+        return False
+    return not has_comments_sheet_signals(screen)
+
+
+def is_full_comments_sheet(screen: Screen, activity: str = "") -> bool:
+    if is_reel_overlay_composer_only(screen, activity):
+        return False
+    return has_comments_sheet_signals(screen)
+
+
 def classify_screen(screen: Screen, screen_state: ScreenState | None = None) -> ScreenState:
     """Use phone-provided state when present; otherwise infer from tree (legacy)."""
     if screen_state and screen_state.screen_type != "unknown":
@@ -67,17 +105,32 @@ def classify_screen(screen: Screen, screen_state: ScreenState | None = None) -> 
             needs_vision=len(screen.elements) < 10,
         )
 
-    if any("add a comment" in t for t in texts):
+    if is_full_comments_sheet(screen, screen.activity):
         return ScreenState(
             app_package=screen.app,
             activity_class=screen.activity,
             screen_type="comments_sheet",
             selected_tab=base.selected_tab,
-            confidence=max(base.confidence, 0.85),
+            confidence=max(base.confidence, 0.88),
             element_count=len(screen.elements),
-            signals=signals + ["comment sheet"],
+            signals=signals + ["comments sheet open"],
             needs_vision=False,
         )
+
+    activity = (screen.activity or base.activity_class or "").lower()
+    if ("clips" in activity or ("reel" in activity and "profile" not in activity)) and not has_home_feed_tabs(screen):
+        big = [e for e in screen.elements if e.scrollable and e.h > 400 and e.w > 200]
+        if big or len(screen.elements) < 15:
+            return ScreenState(
+                app_package=screen.app,
+                activity_class=screen.activity,
+                screen_type="reels_viewer",
+                selected_tab="reels",
+                confidence=max(base.confidence, 0.82),
+                element_count=len(screen.elements),
+                signals=signals + ["reels activity"],
+                needs_vision=len(screen.elements) < 8,
+            )
 
     big = [e for e in screen.elements if e.scrollable and e.h > 400 and e.w > 200]
     activity = (screen.activity or base.activity_class or "").lower()

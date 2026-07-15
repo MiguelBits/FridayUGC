@@ -41,10 +41,26 @@ class ScreenClassifierTest {
     fun comments_sheet_detected() {
         val screen = Screen(
             app = "com.instagram.android",
-            elements = listOf(ScreenElement(id = 0, text = "Add a comment…", editable = true)),
+            elements = listOf(
+                ScreenElement(id = 0, text = "Add a comment…", editable = true),
+                ScreenElement(id = 1, text = "Reply", clickable = true),
+                ScreenElement(id = 2, text = "user_one", clickable = true),
+            ),
         )
         val state = ScreenClassifier.classify(screen)
         assertEquals("comments_sheet", state.screenType)
+    }
+
+    @Test
+    fun reel_overlay_composer_is_not_full_comments_sheet() {
+        val screen = Screen(
+            app = "com.instagram.android",
+            elements = listOf(ScreenElement(id = 0, text = "Add comment...", editable = true)),
+        )
+        val activity = "com.instagram.clips.viewer.ClipsViewerActivity"
+        assertFalse(ScreenClassifier.isFullCommentsSheet(screen, activity))
+        val state = ScreenClassifier.classify(screen, activityClass = activity)
+        assertEquals("reels_viewer", state.screenType)
     }
 
     @Test

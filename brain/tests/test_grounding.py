@@ -40,7 +40,8 @@ def test_ground_comment_heart_mock():
     )
     resp = asyncio.run(ground_target(req))
     assert resp.action == "like_comment"
-    assert resp.params["y"] > 1400
+    assert resp.params["x"] < 200
+    assert resp.params["y"] > 1600
 
 
 def test_ground_needs_screenshot_when_empty():

@@ -48,13 +48,15 @@ object ScreenCapture {
                 scaled to emptyList()
             }
             val out = ByteArrayOutputStream()
+            val iw = toEncode.width
+            val ih = toEncode.height
             toEncode.compress(Bitmap.CompressFormat.JPEG, 72, out)
             toEncode.recycle()
             SomCapture(
                 screenshotB64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP),
                 somMarks = marks,
-                imageWidth = toEncode.width,
-                imageHeight = toEncode.height,
+                imageWidth = iw,
+                imageHeight = ih,
             )
         } catch (_: Exception) {
             null

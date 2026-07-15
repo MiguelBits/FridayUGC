@@ -36,7 +36,9 @@ class IntentResolver(
         return when (name) {
             "enter_reels" -> resolveEnterReels(screen, screenState, screenshotB64, deviceId, imageWidth, imageHeight)
             "watch_reel", "dwell" -> resolveDwell(intent)
-            "open_comments" -> resolveOpenComments(screen, screenState, screenshotB64, deviceId, imageWidth, imageHeight)
+            "open_comments" -> resolveOpenComments(
+                screen, screenState, tracker, screenshotB64, deviceId, imageWidth, imageHeight,
+            )
             "engage_comments" -> resolveEngageComments(screen, tracker, screenshotB64, deviceId, imageWidth, imageHeight)
             "next_reel" -> ResolveResult(
                 StepResponse(
@@ -129,12 +131,15 @@ class IntentResolver(
     private suspend fun resolveOpenComments(
         screen: Screen,
         screenState: ScreenState,
+        tracker: SessionTracker,
         screenshotB64: String?,
         deviceId: String,
         imageWidth: Int = 0,
         imageHeight: Int = 0,
     ): ResolveResult {
-        if (screenState.screenType == "comments_sheet") {
+        if (tracker.commentsSheetOpen ||
+            ScreenClassifier.isFullCommentsSheet(screen, screenState.activityClass)
+        ) {
             return ResolveResult(
                 StepResponse(action = "wait", params = mapOf("ms" to JsonPrimitive(200))),
             )

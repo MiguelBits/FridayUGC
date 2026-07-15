@@ -209,6 +209,55 @@ data class GroundResponse(
     @SerialName("needs_screenshot") val needsScreenshot: Boolean = false,
 )
 
+// --- Tick v2: thin-client loop ---
+
+@Serializable
+data class ObserveBundle(
+    val screen: Screen,
+    @SerialName("som_marks") val somMarks: List<SomMark> = emptyList(),
+    @SerialName("screen_width") val screenWidth: Int = 0,
+    @SerialName("screen_height") val screenHeight: Int = 0,
+    @SerialName("ig_version") val igVersion: String = "",
+)
+
+@Serializable
+data class TickLastResult(
+    val action: String = "",
+    @SerialName("executor_ok") val executorOk: Boolean = true,
+    val error: String? = null,
+    @SerialName("ui_key") val uiKey: String = "",
+    val params: Map<String, JsonElement> = emptyMap(),
+    @SerialName("before_observe") val beforeObserve: ObserveBundle? = null,
+    @SerialName("after_observe") val afterObserve: ObserveBundle? = null,
+    val verified: String? = null,
+    @SerialName("change_score") val changeScore: Float = 0f,
+)
+
+@Serializable
+data class TickRequest(
+    @SerialName("session_id") val sessionId: String,
+    @SerialName("device_id") val deviceId: String = "",
+    val goal: String,
+    val step: Int = 0,
+    val observe: ObserveBundle,
+    @SerialName("last_result") val lastResult: TickLastResult? = null,
+    val mode: String = "read_only",
+    @SerialName("session_context") val sessionContext: Map<String, JsonElement> = emptyMap(),
+)
+
+@Serializable
+data class TickResponse(
+    val action: String,
+    val params: Map<String, JsonElement> = emptyMap(),
+    val say: String? = null,
+    val reason: String = "",
+    val done: Boolean = false,
+    @SerialName("needs_screenshot") val needsScreenshot: Boolean = false,
+    @SerialName("approval_required") val approvalRequired: Boolean = false,
+    @SerialName("session_context") val sessionContext: Map<String, JsonElement> = emptyMap(),
+    val grounded: Boolean = false,
+)
+
 @Serializable
 data class IncomingMessage(
     @SerialName("message_id") val messageId: String,

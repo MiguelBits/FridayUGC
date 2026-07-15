@@ -128,3 +128,40 @@ Used when accessibility tree and device memory cannot bind icon-only Instagram U
 No OpenAI key required — uses `FRIDAY_VISION_MODEL` (default `google/gemma-3-12b-it`) on vLLM.
 
 GroundRequest fields: `som_marks[]` with `{mark_id, x, y, text, element_id}`, `use_som` (default true when marks present).
+
+## 7. Thin-client tick loop (preferred)
+
+`POST /agent/tick` — phone sends **observe** (current screen + optional screenshot/SOM) and **last_result**
+(before/after bundle from the previous executed action). Brain verifies the last step, updates authoritative
+`session_context`, plans the next move, inline-grounds vision targets, and returns one atomic action.
+
+Phone must **not** call `/agent/ground` or resolve `intent` locally when using tick mode.
+
+```json
+{
+  "session_id": "uuid",
+  "device_id": "phone-id",
+  "goal": "Like comments on Instagram reels",
+  "step": 3,
+  "observe": {
+    "screen": { "app": "com.instagram.android", "elements": [], "screenshot_b64": "..." },
+    "som_marks": [],
+    "screen_width": 1440,
+    "screen_height": 3024
+  },
+  "last_result": {
+    "action": "tap",
+    "executor_ok": true,
+    "ui_key": "comments_icon",
+    "params": { "x": 1200, "y": 1700, "ui_key": "comments_icon" },
+    "before_observe": { "screen": { "...": "..." } },
+    "after_observe": { "screen": { "...": "..." } }
+  },
+  "mode": "full",
+  "session_context": {}
+}
+```
+
+Response adds `session_context` (brain-owned budgets/phases) and `grounded: true` when vision produced x,y.
+
+Legacy `POST /agent/step` remains for compatibility; new Android builds use `ThinAgentLoop` → `/agent/tick` only.

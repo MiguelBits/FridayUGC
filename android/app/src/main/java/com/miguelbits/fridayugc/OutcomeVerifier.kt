@@ -54,7 +54,7 @@ object OutcomeVerifier {
                 Result(if (moved) "verified" else "unverified", change)
             }
             "tap", "like", "like_story", "like_comment", "comment", "dm", "follow", "save", "type" -> {
-                verifyTap(uiKey, change, beforeFp, afterFp, after, afterState)
+                verifyTap(uiKey, change, beforeFp, afterFp, after, afterActivity)
             }
             else -> Result(if (change >= 0.05f) "verified" else "unknown", change)
         }
@@ -66,20 +66,21 @@ object OutcomeVerifier {
         beforeFp: String,
         afterFp: String,
         after: Screen,
-        afterState: ScreenState,
+        afterActivity: String,
     ): Result {
         val screenChanged = ScreenValidator.screenChanged(beforeFp, afterFp)
         return when (uiKey) {
             "comments_icon" -> {
-                val ok = afterState.screenType == "comments_sheet" ||
-                    (change >= 0.10f && screenChanged)
+                val sheetOpen = ScreenClassifier.isFullCommentsSheet(after, afterActivity)
+                val ok = sheetOpen || (change >= 0.10f && screenChanged)
                 Result(if (ok) "verified" else "unverified", change)
             }
             "comment_heart" -> {
-                val onSheet = afterState.screenType == "comments_sheet"
+                val onSheet = ScreenClassifier.isFullCommentsSheet(after, afterActivity)
                 Result(if (onSheet) "verified" else "unverified", change)
             }
             "nav_reels" -> {
+                val afterState = ScreenClassifier.classify(after, afterActivity)
                 val onReels = ScreenClassifier.likelyReelsSurface(afterState, after)
                 Result(if (onReels || change >= 0.08f) "verified" else "unverified", change)
             }

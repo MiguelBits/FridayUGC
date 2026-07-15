@@ -84,7 +84,11 @@ def test_guard_blocks_swipe_on_home_feed_comment_likes():
 def test_classify_comments_sheet():
     screen = Screen(
         app="com.instagram.android",
-        elements=[ScreenElement(id=0, text="Add a comment")],
+        activity="CommentsActivity",
+        elements=[
+            ScreenElement(id=0, text="Reply", role="button", y=900),
+            ScreenElement(id=1, text="Add a comment…", role="edittext", y=1200),
+        ],
     )
     state = classify_screen(screen)
     assert state.screen_type == "comments_sheet"

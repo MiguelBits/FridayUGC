@@ -65,12 +65,8 @@ object ScreenClassifier {
             )
         }
 
-        if (texts.any {
-            it.contains("add a comment") || it.contains("add comment") ||
-                (it.contains("view") && it.contains("comment")) ||
-                it.contains("comments") && !it.contains("selected")
-        }) {
-            signals.add("comment composer visible")
+        if (isFullCommentsSheet(screen, activityClass)) {
+            signals.add("comments sheet open")
             return ScreenState(
                 appPackage = screen.app,
                 activityClass = activityClass,
@@ -275,6 +271,40 @@ object ScreenClassifier {
             signals = signals,
             needsVision = true,
         )
+    }
+
+    /**
+     * Reel overlay shows "Add comment…" at the bottom — that is NOT the full comments sheet.
+     * Treating it as the sheet skips opening comments and taps the wrong targets (reel like toggle).
+     */
+    fun isReelOverlayComposerOnly(screen: Screen, activityClass: String = ""): Boolean {
+        val texts = screen.elements.map { it.text.lowercase() }
+        val hasComposer = texts.any { it.contains("add comment") || it.contains("add a comment") }
+        if (!hasComposer) return false
+        val activityLower = activityClass.lowercase()
+        val onReels = activityLower.contains("clips") ||
+            (activityLower.contains("reel") && !activityLower.contains("profile"))
+        if (!onReels) return false
+        return !hasCommentsSheetSignals(texts, screen)
+    }
+
+    /** Full bottom sheet with comment rows — not just the reel overlay composer bar. */
+    fun isFullCommentsSheet(screen: Screen, activityClass: String = ""): Boolean {
+        if (isReelOverlayComposerOnly(screen, activityClass)) return false
+        val texts = screen.elements.map { it.text.lowercase() }
+        return hasCommentsSheetSignals(texts, screen)
+    }
+
+    private fun hasCommentsSheetSignals(texts: List<String>, screen: Screen): Boolean {
+        if (texts.any { it.contains("reply") }) return true
+        if (texts.any { it.contains("view") && it.contains("comment") }) return true
+        if (texts.any { it.contains("view all") }) return true
+        val hasComposer = texts.any { it.contains("add comment") || it.contains("add a comment") }
+        if (hasComposer && screen.elements.size >= 8) return true
+        if (texts.any { it.contains("comments") && !it.contains("selected") && screen.elements.size >= 6 }) {
+            return true
+        }
+        return false
     }
 
     /** Confirmed Reels surface — never infer from sparse scrollables alone (false-positive on home). */

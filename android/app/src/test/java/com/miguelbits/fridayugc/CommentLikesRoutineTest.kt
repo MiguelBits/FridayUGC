@@ -51,7 +51,7 @@ class CommentLikesRoutineTest {
             phase = "reels_comment_likes"
             commentsSheetOpen = true
             commentLikesPhase = CommentLikesRoutine.PHASE_IN_COMMENTS
-            commentLikesSinceScroll = 1
+            commentLikesSinceScroll = 2
             commentLikesThisReel = 1
             commentLikesPerReel = 3
         }
@@ -92,9 +92,18 @@ class CommentLikesRoutineTest {
     fun comment_heart_verified_when_sheet_before_tap() {
         val before = Screen(
             app = "com.instagram.android",
-            elements = listOf(ScreenElement(id = 0, text = "Add a comment")),
+            elements = listOf(
+                ScreenElement(id = 0, text = "Add a comment"),
+                ScreenElement(id = 1, text = "Reply"),
+            ),
         )
-        val after = Screen(app = "com.instagram.android", elements = emptyList())
+        val after = Screen(
+            app = "com.instagram.android",
+            elements = listOf(
+                ScreenElement(id = 0, text = "Add a comment"),
+                ScreenElement(id = 1, text = "Reply"),
+            ),
+        )
         val beforeFp = ScreenValidator.fingerprint(before)
         val afterFp = ScreenValidator.fingerprint(after)
         val result = OutcomeVerifier.verify(

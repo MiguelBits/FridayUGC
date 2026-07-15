@@ -106,7 +106,10 @@ class OutcomeVerifierTest {
     fun comment_heart_verified_on_sheet_without_tree_change() {
         val screen = Screen(
             app = "com.instagram.android",
-            elements = listOf(ScreenElement(id = 0, text = "Add a comment")),
+            elements = listOf(
+                ScreenElement(id = 0, text = "Add a comment"),
+                ScreenElement(id = 1, text = "Reply"),
+            ),
         )
         val fp = ScreenValidator.fingerprint(screen)
         val result = OutcomeVerifier.verify(
@@ -120,6 +123,26 @@ class OutcomeVerifierTest {
             "clips",
         )
         assertEquals("verified", result.status)
+    }
+
+    @Test
+    fun comment_heart_unverified_on_reel_overlay_composer_only() {
+        val screen = Screen(
+            app = "com.instagram.android",
+            elements = listOf(ScreenElement(id = 0, text = "Add comment...")),
+        )
+        val fp = ScreenValidator.fingerprint(screen)
+        val result = OutcomeVerifier.verify(
+            "like_comment",
+            true,
+            screen,
+            screen,
+            fp,
+            fp,
+            mapOf("ui_key" to kotlinx.serialization.json.JsonPrimitive("comment_heart")),
+            "clips",
+        )
+        assertEquals("unverified", result.status)
     }
 
     @Test

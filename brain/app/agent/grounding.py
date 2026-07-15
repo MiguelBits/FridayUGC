@@ -155,7 +155,12 @@ def _pick_mock_mark(req: GroundRequest) -> int | None:
         sorted_m = sorted(req.som_marks, key=lambda m: (-m.x, m.y))
         return sorted_m[0].mark_id if sorted_m else None
     if anchor == "comment_heart":
-        sheet = [m for m in req.som_marks if m.y > (req.screen_height or 2400) * 0.55]
+        w = req.screen_width or 1080
+        h = req.screen_height or 2400
+        sheet = [
+            m for m in req.som_marks
+            if m.y > h * 0.58 and m.x < w * 0.22
+        ]
         sheet.sort(key=lambda m: m.y)
         idx = min(req.row_index, len(sheet) - 1) if sheet else 0
         return sheet[idx].mark_id if sheet else req.som_marks[0].mark_id
@@ -239,7 +244,7 @@ def _mock_ground(req: GroundRequest) -> GroundResponse:
     h = req.screen_height or 2400
     presets = {
         "comments_icon": (int(w * 0.90), int(h * 0.56)),
-        "comment_heart": (int(w * 0.86), int(h * (0.55 + 0.07 * req.row_index))),
+        "comment_heart": (int(w * 0.12), int(h * (0.68 + 0.075 * req.row_index))),
         "nav_reels": (int(w * 0.30), int(h * 0.93)),
         "reel_like": (int(w * 0.92), int(h * 0.48)),
     }

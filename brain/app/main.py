@@ -3,9 +3,10 @@ from __future__ import annotations
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import Response
 
-from .agent.actions import GroundRequest, GroundResponse, StepRequest, StepResponse
+from .agent.actions import GroundRequest, GroundResponse, StepRequest, StepResponse, TickRequest, TickResponse
 from .agent.grounding import ground_target
 from .agent.router import decide
+from .agent.tick import handle_tick
 from .config import get_settings
 from .gallery.curator import curate, reply_to_comment
 from .gallery.schemas import (
@@ -172,6 +173,18 @@ async def agent_ground(req: GroundRequest) -> GroundResponse:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Grounding failed: {exc}",
+        ) from exc
+
+
+@app.post("/agent/tick", response_model=TickResponse, dependencies=[Depends(require_token)])
+async def agent_tick(req: TickRequest) -> TickResponse:
+    """Thin-client loop: observe in, atomic motor action + session_context out."""
+    try:
+        return await handle_tick(req)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Tick failed: {exc}",
         ) from exc
 
 
