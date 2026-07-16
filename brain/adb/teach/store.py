@@ -12,24 +12,29 @@ VALID_SKILLS = frozenset(
     {
         "open_comments",
         "like_comment",
+        "scroll_comments",
         "close_comments",
         "next_reel",
         "full_loop",
     }
 )
 
-# Phase-1 implemented skills (others accepted by CLI but stubbed).
-IMPLEMENTED_SKILLS = frozenset({"open_comments"})
+# Skills with a working interactive record path.
+IMPLEMENTED_SKILLS = frozenset({"open_comments", "like_comment", "full_loop"})
 
 VALID_LABELS = frozenset({"ok", "fail", "ad", "wrong_sheet", "trap"})
 
 SKILL_ANCHORS: dict[str, str] = {
     "open_comments": "comments_icon",
     "like_comment": "comment_heart",
+    "scroll_comments": "comments_sheet",
     "close_comments": "close_comments",
     "next_reel": "reels_swipe",
     "full_loop": "full_loop",
 }
+
+# Skills that sync median coords into LearningStore.device_memory.
+_MEMORY_SYNC_SKILLS = frozenset({"open_comments", "like_comment"})
 
 MIN_OK_FOR_MOTOR = 3
 
@@ -203,9 +208,9 @@ class TeachStore:
     def _sync_learning_memory(self, skill_data: dict[str, Any]) -> None:
         """Push only successful taught coords into LearningStore.device_memory."""
         skill = str(skill_data.get("skill_id") or "")
-        if skill != "open_comments":
+        if skill not in _MEMORY_SYNC_SKILLS:
             return
-        anchor = SKILL_ANCHORS.get(skill, "comments_icon")
+        anchor = SKILL_ANCHORS.get(skill, skill)
         device_id = str(skill_data.get("device_id") or "")
         x = int(skill_data.get("x") or 0)
         y = int(skill_data.get("y") or 0)
@@ -237,9 +242,26 @@ class TeachStore:
             pass
 
 
-def suggest_label_from_texts(after_texts: list[str], before_texts: list[str] | None = None) -> Optional[str]:
+def suggest_label_from_texts(
+    after_texts: list[str],
+    before_texts: list[str] | None = None,
+    *,
+    skill: str = "open_comments",
+) -> Optional[str]:
     """Heuristic label suggestion for the human to confirm (never auto-commits)."""
-    from .classify import score_open_comments
+    from .classify import (
+        score_close_comments,
+        score_like_comment,
+        score_open_comments,
+        score_scroll_comments,
+    )
 
-    scored = score_open_comments(after_texts or [], before_texts=before_texts)
+    if skill == "like_comment":
+        scored = score_like_comment(after_texts or [], before_texts=before_texts)
+    elif skill == "scroll_comments":
+        scored = score_scroll_comments(after_texts or [], before_texts=before_texts)
+    elif skill in {"close_comments", "next_reel"}:
+        scored = score_close_comments(after_texts or [], before_texts=before_texts)
+    else:
+        scored = score_open_comments(after_texts or [], before_texts=before_texts)
     return str(scored.get("label_guess") or "") or None

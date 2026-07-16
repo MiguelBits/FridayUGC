@@ -14,6 +14,7 @@ from brain.adb.screenshot import capture_png
 from brain.adb.uiauto import dump_texts
 
 from .classify import score_open_comments
+from .reels import ensure_on_reels
 from .store import TeachStore
 
 
@@ -45,12 +46,13 @@ def run_demo(*, trials: int = 3, serial: str | None = None, store: TeachStore | 
     x = max(1, min(w - 1, int(round(float(skill["x_frac"]) * w))))
     y = max(1, min(h - 1, int(round(float(skill["y_frac"]) * h))))
 
-    print(f"=== Using taught tap ({x}, {y}) on {w}x{h} — {trials} trial(s) ===")
-    execute("open_reels", {}, screen_width=w, screen_height=h, serial=serial, mode="full")
-    time.sleep(settle_ms("open_reels") / 1000.0)
-
     out = store.replay_dir / "demo_latest"
     out.mkdir(parents=True, exist_ok=True)
+    print("Opening Reels (simple deeplink)…")
+    _, w, h = ensure_on_reels(w=w, h=h, serial=serial, proof_dir=out / "reels_entry")
+    x = max(1, min(w - 1, int(round(float(skill["x_frac"]) * w))))
+    y = max(1, min(h - 1, int(round(float(skill["y_frac"]) * h))))
+    print(f"=== Using taught tap ({x}, {y}) on {w}x{h} — {trials} trial(s) ===")
     results = []
     passed = 0
     for i in range(trials):

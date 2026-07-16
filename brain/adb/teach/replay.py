@@ -17,6 +17,7 @@ from brain.adb.screenshot import capture_png
 from brain.adb.uiauto import dump_texts
 
 from .classify import is_ad_reel, score_open_comments
+from .reels import ensure_on_reels
 from .store import TeachStore
 
 logger = logging.getLogger(__name__)
@@ -75,9 +76,8 @@ def run_replay(
     print(f"Output: {out_dir}")
 
     if open_reels:
-        execute("open_reels", {}, screen_width=w, screen_height=h, serial=serial, mode="full")
-        time.sleep(settle_ms("open_reels") / 1000.0)
-        w, h = adb_mod.wm_size(serial=serial)
+        print("Opening Reels (simple deeplink)…")
+        _, w, h = ensure_on_reels(w=w, h=h, serial=serial, proof_dir=out_dir / "reels_entry")
         if skill_data.get("x_frac") and skill_data.get("y_frac"):
             x = max(1, min(w - 1, int(round(float(skill_data["x_frac"]) * w))))
             y = max(1, min(h - 1, int(round(float(skill_data["y_frac"]) * h))))

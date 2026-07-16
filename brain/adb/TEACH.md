@@ -1,15 +1,24 @@
 # Human teach mode
 
-Learn Instagram Reels skills from your demos on a real phone. Phase 1 focuses on **open_comments**.
+**First flow:** put likes on comments in a Reel — with chained screenshots at every step.
 
-## Flow
+## What we are recording
 
-1. **Record** — you tap comments on the phone; we capture before/after screenshots and your label.
-2. **Store** — `ok` demos with coords aggregate into a stable `comments_icon` (median x,y) under `data/teach/`.
-3. **Replay** — taps **only** the taught coord (no vision / no Y-offset guessing) and scores with strict comments-sheet text checks.
-4. **Agent** — `motor_resolver` prefers TeachStore coords for `comments_icon` when `n_ok >= 3`, then LearningStore memory.
+Per reel you (human) do this on the phone; we ask and screenshot each step:
 
-Ads (`ad`), share sheet (`wrong_sheet`), and browser/cookie traps (`trap`) are **never** stored as success.
+```
+on Reels
+  → open comments     BEFORE=reel  AFTER=proof comments open
+  → like a comment    BEFORE=that proof  AFTER=after like
+  → scroll comments   BEFORE=previous AFTER
+  → like another      BEFORE=previous AFTER
+  → close comments    BEFORE=previous AFTER  (Back)
+  → next reel         BEFORE=previous AFTER  (swipe up)
+```
+
+The AFTER of step N is copied as the BEFORE of step N+1 — so we keep evidence we got to comments and move forward from that same picture.
+
+Tap targets (`open_comments`, `like_comment`) also ask you to click the BEFORE image for coords. Scroll / close / next are evidence-only.
 
 ## Commands (Git Bash, from `brain/`)
 
@@ -17,12 +26,24 @@ Ads (`ad`), share sheet (`wrong_sheet`), and browser/cookie traps (`trap`) are *
 cd brain && source .venv/Scripts/activate && adb devices
 ```
 
+Full reel flow (default):
+
 ```bash
-cd brain && source .venv/Scripts/activate && python -m adb.teach record --skill open_comments --open-reels --count 10
+cd brain && source .venv/Scripts/activate && python -m adb.teach record --skill full_loop --count 10 --likes 2
+```
+
+Open-comments only:
+
+```bash
+cd brain && source .venv/Scripts/activate && python -m adb.teach record --skill open_comments --count 10
 ```
 
 ```bash
 cd brain && source .venv/Scripts/activate && python -m adb.teach show --skill open_comments
+```
+
+```bash
+cd brain && source .venv/Scripts/activate && python -m adb.teach show --skill like_comment
 ```
 
 ```bash
@@ -33,27 +54,21 @@ cd brain && source .venv/Scripts/activate && python -m adb.teach replay --skill 
 cd brain && source .venv/Scripts/activate && pytest tests/test_teach.py -q
 ```
 
-## Record UX
+## Per-step UX
 
-Per episode:
-
-1. BEFORE screenshot (+ UI texts if uiautomator works)
-2. You open comments on the phone
-3. Enter when done (`s` skip, `a` mark ad + swipe, `q` quit)
-4. AFTER screenshot
-5. Confirm: **Comments opened correctly? [Y/n]** — Enter or `Y` = `ok`; `N` then pick `fail` / `ad` / `wrong_sheet` / `trap`
-6. For `ok`: click the BEFORE image (tkinter) or type `x,y` / `92% 52%`
-
-## How the agent uses the skill
-
-After enough `ok` demos, running the normal ADB loop with `reels_comment_likes` will tap the taught `comments_icon` first (TeachStore → device_memory). Failures during teach do **not** bump fail counts on good coords.
+1. Show / reuse BEFORE screenshot  
+2. You act on the phone  
+3. Enter when done (`s` skip, `a` ad, `q` quit)  
+4. Capture AFTER (evidence)  
+5. Confirm Y/n  
+6. For taps: click BEFORE where you tapped  
 
 ## Layout
 
 ```
 brain/data/teach/
-  episodes/*.json
+  episodes/*.json          # each step (skill + parent_id + chained_from)
   shots/*_before.png / *_after.png
   skills/open_comments__<device_id>.json
-  replay/<timestamp>/report.json
+  skills/like_comment__<device_id>.json
 ```

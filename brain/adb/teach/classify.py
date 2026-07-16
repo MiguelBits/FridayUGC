@@ -77,6 +77,58 @@ def _share_from_joined(texts: list[str]) -> bool:
     return hits >= 1
 
 
+def score_like_comment(
+    after_texts: list[str],
+    *,
+    before_texts: list[str] | None = None,
+    activity: str = "",
+) -> dict[str, Any]:
+    """
+    like_comment pass = still on comments sheet after the heart tap.
+    Fail if we left the sheet, hit share/trap, or never looked like comments.
+    """
+    # Same surface check as open_comments success: must remain on comments.
+    return score_open_comments(after_texts, before_texts=before_texts, activity=activity)
+
+
+def score_scroll_comments(
+    after_texts: list[str],
+    *,
+    before_texts: list[str] | None = None,
+    activity: str = "",
+) -> dict[str, Any]:
+    """scroll_comments pass = still on comments sheet after the scroll."""
+    return score_open_comments(after_texts, before_texts=before_texts, activity=activity)
+
+
+def score_close_comments(
+    after_texts: list[str],
+    *,
+    before_texts: list[str] | None = None,
+    activity: str = "",
+) -> dict[str, Any]:
+    """close_comments / next_reel pass = comments sheet is gone."""
+    after = list(after_texts or [])
+    screen = _screen_from_texts(after)
+
+    if is_trap_overlay(screen, after):
+        return {"ok": False, "label_guess": "trap", "surface": SurfaceLabel.TRAP.value}
+    if looks_like_comments_sheet(screen, after):
+        return {
+            "ok": False,
+            "label_guess": "fail",
+            "surface": SurfaceLabel.COMMENTS_SHEET.value,
+        }
+    label = classify_surface(screen, activity=activity, extra_texts=after)
+    if label == SurfaceLabel.COMMENTS_SHEET:
+        return {"ok": False, "label_guess": "fail", "surface": label.value}
+    if label == SurfaceLabel.TRAP:
+        return {"ok": False, "label_guess": "trap", "surface": label.value}
+    if label == SurfaceLabel.AD_REEL or is_sponsored_ad(screen, after):
+        return {"ok": False, "label_guess": "ad", "surface": SurfaceLabel.AD_REEL.value}
+    return {"ok": True, "label_guess": "ok", "surface": label.value}
+
+
 def is_ad_reel(texts: list[str]) -> bool:
     screen = _screen_from_texts(texts)
     return is_sponsored_ad(screen, texts)

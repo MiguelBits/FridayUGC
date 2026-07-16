@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
-# Current IG (tall phones / PT-PT probe 1440x3216):
-#   Home | Search | Reels | Shop | Profile  — Reels is CENTER (~0.50).
-# Legacy layout still seen on some builds:
-#   Home | Reels | Create | Search | Profile — Reels second (~0.30).
+# Current IG on teach device (PT, 1440x3216) — confirmed via screenshot:
+#   Home | Reels | Messages | Search | Profile
+#   Reels is SECOND (~0.30). Center (~0.50) is Messages/DM — do NOT tap that for Reels.
+# Alternate layout still seen on some builds:
+#   Home | Search | Reels | Shop | Profile — Reels CENTER (~0.50).
 IG_NAV_X: dict[str, float] = {
     "home": 0.10,
-    "search": 0.30,
-    "reels": 0.50,
+    "reels": 0.30,
+    "inbox": 0.50,
+    "search": 0.70,
     "shop": 0.70,
-    "inbox": 0.70,
     "activity": 0.70,
     "profile": 0.90,
     "create": 0.50,
 }
 
-# Prefer center Reels, then legacy second-tab.
-REELS_X_CANDIDATES: tuple[float, ...] = (0.50, 0.30)
+# Prefer Messages-in-center layout (Reels @ 0.30), then center-Reels layout.
+REELS_X_CANDIDATES: tuple[float, ...] = (0.30, 0.50)
 
 # Tall phones (e.g. 1440x3216): 0.978 lands in the system gesture bar and misses tabs.
 NAV_Y_FRAC = 0.965

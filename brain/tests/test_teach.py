@@ -7,16 +7,24 @@ from pathlib import Path
 
 import pytest
 
-from adb.teach.classify import score_open_comments
+from adb.teach.classify import score_like_comment, score_open_comments
 from adb.teach.coords import parse_coord_input
 from adb.teach.store import TeachStore
 
 
-def _ok_episode(device_id: str, x: int, y: int, w: int = 1440, h: int = 3216) -> dict:
+def _ok_episode(
+    device_id: str,
+    x: int,
+    y: int,
+    w: int = 1440,
+    h: int = 3216,
+    *,
+    skill: str = "open_comments",
+) -> dict:
     eid = str(uuid.uuid4())
     return {
         "episode_id": eid,
-        "skill": "open_comments",
+        "skill": skill,
         "label": "ok",
         "device_id": device_id,
         "screen_width": w,
@@ -139,8 +147,47 @@ def test_motor_resolver_prefers_teach_store(tmp_path: Path, monkeypatch: pytest.
     for x, y in ((1300, 1600), (1320, 1680), (1340, 1700)):
         store.save_episode(_ok_episode(device, x, y))
 
-    monkeypatch.setattr(mr, "_teach_coord", lambda device_id, ui_key: store.get_skill_coord("open_comments", device_id))
+    monkeypatch.setattr(
+        mr,
+        "_teach_coord",
+        lambda device_id, ui_key: store.get_skill_coord(
+            "open_comments" if ui_key == "comments_icon" else "like_comment",
+            device_id,
+        ),
+    )
     assert mr._memory_coord(device, "comments_icon") == (1320, 1680)
+
+
+def test_like_comment_aggregates_and_syncs_memory(tmp_path: Path):
+    learn_db = tmp_path / "learn.db"
+    store = TeachStore(root=tmp_path / "teach", learning_db_path=learn_db)
+    device = "phone-like"
+    for x, y in ((180, 2100), (190, 2120), (200, 2140)):
+        store.save_episode(_ok_episode(device, x, y, skill="like_comment"))
+
+    skill = store.get_skill("like_comment", device)
+    assert skill is not None
+    assert skill["n_ok"] == 3
+    assert skill["anchor"] == "comment_heart"
+    assert skill["x"] == 190
+    assert store.get_skill_coord("like_comment", device, min_ok=3) == (190, 2120)
+
+    from app.learning.store import LearningStore
+
+    mem = LearningStore(path=str(learn_db)).get_memory(device)
+    assert any(e.ui_key == "comment_heart" and e.x == 190 and e.y == 2120 for e in mem)
+
+
+def test_score_like_comment_stays_on_sheet():
+    scored = score_like_comment(["Comentários", "Adicionar um comentário…"])
+    assert scored["ok"] is True
+    assert scored["label_guess"] == "ok"
+
+
+def test_score_like_comment_left_sheet_fails():
+    scored = score_like_comment(["Reels", "Para si"])
+    assert scored["ok"] is False
+    assert scored["label_guess"] == "fail"
 
 
 def test_ask_label_enter_means_ok(monkeypatch: pytest.MonkeyPatch):
@@ -149,6 +196,29 @@ def test_ask_label_enter_means_ok(monkeypatch: pytest.MonkeyPatch):
     answers = iter([""])  # bare Enter
     monkeypatch.setattr(teach_session, "_prompt", lambda _msg: next(answers))
     assert teach_session._ask_label("fail") == "ok"
+
+
+def test_ask_label_like_comment_prompt(monkeypatch: pytest.MonkeyPatch):
+    from adb.teach import session as teach_session
+
+    seen: list[str] = []
+
+    def _capture(msg: str) -> str:
+        seen.append(msg)
+        return "y"
+
+    monkeypatch.setattr(teach_session, "_prompt", _capture)
+    assert teach_session._ask_label(None, skill="like_comment") == "ok"
+    assert "comments" in seen[0].lower()
+
+
+def test_score_close_comments_leaves_sheet():
+    from adb.teach.classify import score_close_comments
+
+    still = score_close_comments(["Comentários", "Adicionar um comentário…"])
+    assert still["ok"] is False
+    left = score_close_comments(["Reels", "Para si"])
+    assert left["ok"] is True
 
 
 def test_ask_label_no_then_fail_reason(monkeypatch: pytest.MonkeyPatch):

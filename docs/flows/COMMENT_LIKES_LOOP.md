@@ -9,11 +9,16 @@
 open_reels
   └─ for reel in 1..reels_max:
         dwell (1.2–2.8s)
-        open_comments          ← current focus
-        like_comment × target  ← needs scroll after ~2 likes
-        press back             ← close sheet
-        swipe reels_rail up    ← next reel
+        open_comments          ← teach step: AFTER = proof in comments
+        like_comment           ← teach: BEFORE = previous AFTER
+        scroll comments_sheet  ← teach: BETWEEN likes
+        like_comment           ← teach: BEFORE = previous AFTER
+        close_comments (back)  ← teach evidence
+        next_reel (swipe up)   ← teach evidence
 ```
+
+Teach mode (`python -m adb.teach record --skill full_loop`) chains screenshots:
+each step’s AFTER becomes the next step’s BEFORE.
 
 ## Phases (`comment_likes_phase`)
 

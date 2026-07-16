@@ -9,19 +9,26 @@ from .grounding import ground_target
 from .routines import MotorPlan
 
 
+_TEACH_UI_SKILL: dict[str, str] = {
+    "comments_icon": "open_comments",
+    "comment_heart": "like_comment",
+}
+
+
 def _teach_coord(device_id: str, ui_key: str) -> tuple[int, int] | None:
-    """Prefer human-taught open_comments coords (TeachStore) when n_ok >= 3."""
-    if not device_id or ui_key != "comments_icon":
+    """Prefer human-taught coords (TeachStore) when n_ok >= 3."""
+    skill = _TEACH_UI_SKILL.get(ui_key or "")
+    if not device_id or not skill:
         return None
     try:
         from adb.teach.store import TeachStore
 
-        return TeachStore().get_skill_coord("open_comments", device_id)
+        return TeachStore().get_skill_coord(skill, device_id)
     except Exception:
         try:
             from brain.adb.teach.store import TeachStore
 
-            return TeachStore().get_skill_coord("open_comments", device_id)
+            return TeachStore().get_skill_coord(skill, device_id)
         except Exception:
             return None
 

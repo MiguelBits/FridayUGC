@@ -26,9 +26,24 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_rec = sub.add_parser("record", help="Interactive demo recording")
-    p_rec.add_argument("--skill", default="open_comments", choices=sorted(VALID_SKILLS))
-    p_rec.add_argument("--count", type=int, default=10, help="Episodes to record")
-    p_rec.add_argument("--open-reels", action="store_true", help="Open Reels before teaching")
+    p_rec.add_argument(
+        "--skill",
+        default="full_loop",
+        choices=sorted(VALID_SKILLS),
+        help="full_loop = open_comments + like_comment ×N per reel (default)",
+    )
+    p_rec.add_argument("--count", type=int, default=10, help="Reel episodes to record")
+    p_rec.add_argument(
+        "--likes",
+        type=int,
+        default=2,
+        help="like_comment taps per reel when skill=full_loop (default 2)",
+    )
+    p_rec.add_argument(
+        "--no-open-reels",
+        action="store_true",
+        help="Skip opening Reels (default: always open Reels first)",
+    )
     p_rec.add_argument("--serial", default=None)
     p_rec.add_argument("--root", default=None, help="Override data/teach root")
 
@@ -59,10 +74,18 @@ def main(argv: list[str] | None = None) -> int:
     store = TeachStore(root=root) if root else TeachStore()
 
     if args.cmd == "record":
+        skill = args.skill
+        if skill == "open_comments":
+            print(
+                "NOTE: --skill open_comments only labels opening comments.\n"
+                "      For like + scroll + close + next reel, use:\n"
+                "      python -m adb.teach record --skill full_loop --count 10 --likes 2\n"
+            )
         n = run_record(
-            skill=args.skill,
+            skill=skill,
             count=args.count,
-            open_reels=args.open_reels,
+            likes_per_reel=max(1, int(args.likes)),
+            open_reels=not args.no_open_reels,
             serial=args.serial,
             store=store,
         )
