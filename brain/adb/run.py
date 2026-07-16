@@ -40,6 +40,13 @@ def main() -> None:
         ],
         default=None,
     )
+    parser.add_argument("--reels-max", type=int, default=None, help="Max reels to process (reels_comment_likes)")
+    parser.add_argument(
+        "--comment-likes-per-reel",
+        type=int,
+        default=None,
+        help="Fixed comment likes per reel; omit for random 2–5",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -60,6 +67,8 @@ def main() -> None:
         serial=args.serial,
         autonomous=args.autonomous,
         routine=args.routine,  # type: ignore[arg-type]
+        reels_max=args.reels_max,
+        comment_likes_per_reel=args.comment_likes_per_reel,
     )
     state = run_loop_sync(config)
     logging.info("Finished after %d steps", state.step)

@@ -93,6 +93,21 @@ def classify_screen(screen: Screen, screen_state: ScreenState | None = None) -> 
             needs_vision=True,
         )
 
+    activity = (screen.activity or base.activity_class or "").lower()
+    if not screen.elements and (
+        "clips" in activity or ("reel" in activity and "profile" not in activity)
+    ):
+        return ScreenState(
+            app_package=screen.app,
+            activity_class=screen.activity,
+            screen_type="reels_viewer",
+            selected_tab="reels",
+            confidence=0.85,
+            element_count=0,
+            signals=signals + ["reels activity (adb vision-first)"],
+            needs_vision=True,
+        )
+
     if any("for you" in t or "following" in t for t in texts):
         return ScreenState(
             app_package=screen.app,

@@ -19,8 +19,8 @@ VALID_ACTIONS = frozenset({
 COMMENT_LIKES_PLAYBOOK = (
     "\nINSTAGRAM WORKFLOW — reels_comment_likes (intent-first):\n"
     "1. If not reels_viewer → intent enter_reels (or navigate tab=reels).\n"
-    "2. On reels_viewer → intent watch_reel (dwell 2–5s), then intent open_comments.\n"
-    "3. On comments_sheet → like visible hearts, scroll down for more, like again, then go_back.\n"
+    "2. On reels_viewer → dwell briefly, then intent open_comments.\n"
+    "3. On comments_sheet → like 2–5 visible hearts, scroll sheet if needed, then press back to close.\n"
     "4. intent next_reel — repeat until reels_scrolled >= reels_max.\n"
     "Phone resolves intents with vision + device memory — never hardcoded coordinates.\n"
 )
@@ -95,6 +95,11 @@ def goal_wants_scroll(goal: str) -> bool:
     return any(k in g for k in ("scroll", "feed", "reel", "browse", "watch"))
 
 
+def goal_wants_reels_scroll(goal: str) -> bool:
+    g = goal.lower()
+    return goal_wants_scroll(goal) and ("reel" in g or "reels" in g)
+
+
 def goal_wants_comment_likes(goal: str) -> bool:
     g = goal.lower()
     return ("like" in g and "comment" in g and ("reel" in g or "reels" in g)) or "reels_comment_likes" in g
@@ -130,6 +135,27 @@ def fallback_step_data(req: StepRequest) -> dict:
             "params": {"tab": "reels"},
             "say": "Opening Reels tab.",
             "reason": f"Fallback — screen_type={state.screen_type}, need reels_viewer.",
+            "done": False,
+            "needs_screenshot": state.needs_vision,
+            "approval_required": False,
+        }
+    if goal_wants_reels_scroll(req.goal) and on_instagram(req.screen.app):
+        ctx = req.session_context or {}
+        if on_reels_surface(state, ctx, req.screen) or ctx_int(ctx, "reels_tab_opened"):
+            return {
+                "action": "swipe",
+                "params": {"direction": "up", "zone": "reels_rail"},
+                "say": "Next reel.",
+                "reason": "Fallback — on Reels, scroll up.",
+                "done": False,
+                "needs_screenshot": False,
+                "approval_required": False,
+            }
+        return {
+            "action": "navigate",
+            "params": {"tab": "reels"},
+            "say": "Opening Reels tab.",
+            "reason": f"Fallback — scroll-reels goal, screen_type={state.screen_type}.",
             "done": False,
             "needs_screenshot": state.needs_vision,
             "approval_required": False,
@@ -761,8 +787,29 @@ def apply_guards(req: StepRequest, resp: StepResponse) -> StepResponse:
     # Force correct Instagram package — model sometimes returns google/chrome/URLs.
     if resp.action == "open_app":
         pkg = str(resp.params.get("package", ""))
+        lr = req.last_result
+        if lr and lr.action == "open_app" and lr.ok and goal_wants_reels_scroll(req.goal):
+            return StepResponse(
+                action="navigate",
+                params={"tab": "reels"},
+                say="Opening Reels tab.",
+                reason="Instagram already launched — opening Reels",
+                done=False,
+                needs_screenshot=False,
+                approval_required=False,
+            )
         if on_instagram(req.screen.app):
-            if goal_wants_comment_likes(req.goal):
+            if goal_wants_comment_likes(req.goal) or goal_wants_reels_scroll(req.goal):
+                if on_reels_surface(state, ctx, req.screen) or ctx_int(ctx, "reels_tab_opened"):
+                    return StepResponse(
+                        action="swipe",
+                        params={"direction": "up", "zone": "reels_rail"},
+                        say="Scrolling Reels.",
+                        reason="On Reels — swipe next",
+                        done=False,
+                        needs_screenshot=False,
+                        approval_required=False,
+                    )
                 return StepResponse(
                     action="navigate",
                     params={"tab": "reels"},

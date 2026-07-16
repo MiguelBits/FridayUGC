@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from . import adb
+
+_IG_PKG = "com.instagram.android"
+_FOCUS_RE = re.compile(r"(com\.[a-z0-9_.]+)/([A-Za-z0-9_.$]+)")
 
 
 def resolve_serial(explicit: Optional[str] = None) -> str:
@@ -31,29 +35,38 @@ def session_prep(*, serial: Optional[str] = None) -> None:
     adb.keyevent("KEYCODE_WAKEUP", serial=serial)
 
 
+def _parse_pkg_activity(text: str) -> tuple[str, str]:
+    for line in text.splitlines():
+        lower = line.lower()
+        if not any(k in lower for k in ("mcurrentfocus", "mfocusedapp", "mresumedactivity", "mtopfullscreenactivity")):
+            continue
+        match = _FOCUS_RE.search(line)
+        if match:
+            return match.group(1), match.group(2)
+    return "", ""
+
+
 def foreground_app(*, serial: Optional[str] = None) -> tuple[str, str]:
-    """Return (package, activity) from dumpsys window."""
-    out = adb.shell("dumpsys window windows", serial=serial)
-    package = ""
-    activity = ""
-    for line in out.splitlines():
-        line = line.strip()
-        if "mCurrentFocus" in line or "mFocusedApp" in line:
-            # mCurrentFocus=Window{... u0 com.instagram.android/com.instagram.mainactivity.MainActivity}
-            if "/" in line:
-                fragment = line.split()[-1].rstrip("}")
-                if "/" in fragment:
-                    pkg, act = fragment.rsplit("/", 1)
-                    package = pkg.strip()
-                    activity = act.strip()
-                    break
-    if not package:
-        for line in out.splitlines():
-            if "mResumedActivity" in line and "/" in line:
-                fragment = line.split()[-1].rstrip("}")
-                if "/" in fragment:
-                    pkg, act = fragment.rsplit("/", 1)
-                    package = pkg.strip()
-                    activity = act.strip()
-                    break
-    return package, activity
+    """Return (package, activity) from dumpsys."""
+    package, activity = _parse_pkg_activity(adb.shell("dumpsys window", serial=serial))
+    if package:
+        return package, activity
+
+    package, activity = _parse_pkg_activity(adb.shell("dumpsys activity activities", serial=serial))
+    if package:
+        return package, activity
+
+    # Last resort: is Instagram in the top activity stack?
+    top = adb.shell("dumpsys activity top", serial=serial)
+    if _IG_PKG in top:
+        match = _FOCUS_RE.search(top)
+        if match and _IG_PKG in match.group(1):
+            return match.group(1), match.group(2)
+        return _IG_PKG, "MainActivity"
+
+    return "", ""
+
+
+def is_instagram_foreground(*, serial: Optional[str] = None) -> bool:
+    pkg, _ = foreground_app(serial=serial)
+    return _IG_PKG in pkg

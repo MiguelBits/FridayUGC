@@ -115,7 +115,7 @@ def comment_likes_like_hearts(req: StepRequest, state: ScreenState) -> StepRespo
     ctx = req.session_context or {}
     if not on_comments_sheet(state, ctx):
         return None
-    per_reel = ctx_int(ctx, "comment_likes_per_reel", 5)
+    per_reel = ctx_int(ctx, "comment_likes_this_reel_target", 0) or ctx_int(ctx, "comment_likes_per_reel", 5)
     this_reel = ctx_int(ctx, "comment_likes_this_reel")
     if this_reel >= per_reel:
         return StepResponse(

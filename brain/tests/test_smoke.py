@@ -174,7 +174,7 @@ def test_ugc_routine_reels_comment_likes():
     )
     assert r.status_code == 200
     data = r.json()
-    assert "10 reels" in data["goal"].lower() or "10 reel" in data["goal"].lower()
+    assert "reels_max" in data["goal"].lower() or "each reel" in data["goal"].lower()
     assert data["session_context"]["comment_likes_max"] == 50
     assert data["session_context"]["reels_max"] == 10
     assert data["session_context"]["phase"] == "reels_comment_likes"

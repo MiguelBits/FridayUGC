@@ -7,18 +7,8 @@ from typing import Optional
 from app.agent.actions import ObserveBundle, Screen
 
 from . import adb
-from .device import foreground_app
-from .screenshot import IG_PACKAGE, capture_b64
-
-NAV_TABS = {
-    "reels": (0.50, 0.965),
-    "home": (0.10, 0.965),
-    "search": (0.30, 0.965),
-    "profile": (0.90, 0.965),
-    "inbox": (0.70, 0.965),
-    "activity": (0.70, 0.965),
-    "create": (0.50, 0.965),
-}
+from .device import foreground_app, is_instagram_foreground
+from .screenshot import IG_PACKAGE, capture_b64, capture_png
 
 
 def build_observe(
@@ -29,6 +19,14 @@ def build_observe(
 ) -> ObserveBundle:
     width, height = adb.wm_size(serial=serial)
     package, activity = foreground_app(serial=serial)
+    if not package and include_screenshot:
+        # dumpsys can lag after open_app — trust screencap when IG is visible.
+        try:
+            capture_png(serial=serial)
+            if is_instagram_foreground(serial=serial):
+                package, activity = foreground_app(serial=serial)
+        except adb.AdbError:
+            pass
     shot_b64: str | None = None
     if include_screenshot:
         if not ig_only_screenshot or package == IG_PACKAGE or not package:

@@ -1,11 +1,11 @@
 # Friday UGC
 
-**Friday** is an autonomous UGC (user-generated content) operator for the **Lorena Mor** AI persona. A **remote brain** (FastAPI + Gemma on AWS GPU via vLLM) plans each step; a **USB ADB executor** on the same PC reads the screen and performs taps, scrolls, and posts on Instagram (`@itslorenamor`).
+**Friday** is an autonomous UGC (user-generated content) operator for the **Lorena Mor** AI persona. A **remote brain** (FastAPI + Gemma on AWS GPU via vLLM) plans content and engagement; **instagrapi** posts and interacts on Instagram (`@itslorenamor`). Legacy USB ADB executor remains but is deprecated.
 
 ```
-You / schedule ──▶ Gemma brain (local or AWS GPU) ──▶ ADB executor (PC) ──USB──▶ Phone / Instagram
+You / schedule ──▶ Gemma brain (local or AWS GPU) ──▶ instagrapi worker ──▶ Instagram API
                         ▲                                    │
-                        └──────── observe / tick / result ───┘
+                        └──────── captions / inbox policy ───┘
 ```
 
 ## What this repo contains
@@ -13,7 +13,8 @@ You / schedule ──▶ Gemma brain (local or AWS GPU) ──▶ ADB executor (
 | Path | Role |
 |------|------|
 | [`brain/`](brain/) | Python FastAPI service — persona, agent loop, RAG, learning/eval |
-| [`brain/adb/`](brain/adb/) | USB ADB executor — screencap, motor actions, thin tick loop |
+| [`brain/adb/`](brain/adb/) | *(deprecated)* USB ADB executor — use [`brain/instagram/`](brain/instagram/) instead |
+| [`brain/instagram/`](brain/instagram/) | **Instagram API worker** (instagrapi) — post, inbox, engagement |
 | [`infra/`](infra/) | AWS deploy — CloudFormation GPU box + Docker Compose for vLLM |
 | [`shared/`](shared/) | JSON action protocol between executor and brain |
 | [`docs/`](docs/) | Setup, architecture, safety, ADB migration, portfolio mapping |
@@ -67,12 +68,18 @@ FRIDAY_LLM_PROVIDER=mock uvicorn app.main:app --reload --port 8080
 
 # 2. Phone — enable USB debugging, verify: adb devices
 
-# 3. ADB executor (from repo root, brain venv active)
-export FRIDAY_API_TOKEN=your-token
-python -m brain.adb.run --goal "Open Instagram and scroll Reels" --mode read_only
+# 3. Instagram API — scroll reels + like comments
+export FRIDAY_IG_USERNAME=your_handle
+export FRIDAY_IG_PASSWORD=your_password
+FRIDAY_LLM_PROVIDER=mock python -m brain.instagram.run login
+FRIDAY_LLM_PROVIDER=mock python -m brain.instagram.run reels --dry-run --reels-max 5
+FRIDAY_LLM_PROVIDER=mock python -m brain.instagram.run plan --sessions 4
+FRIDAY_LLM_PROVIDER=mock python -m brain.instagram.run daemon
 ```
 
-See [`brain/adb/README.md`](brain/adb/README.md) for flags and troubleshooting.
+See [`docs/INSTAGRAM_API.md`](docs/INSTAGRAM_API.md) for login, cookies, VPS proxy, and routines.
+
+Legacy ADB: see [`brain/adb/README.md`](brain/adb/README.md).
 
 Copy [`brain/.env.example`](brain/.env.example) to `brain/.env`. Never commit `.env`, `apitoken.txt`, or `*.pem`.
 

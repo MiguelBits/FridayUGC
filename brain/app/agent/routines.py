@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from typing import Any
 
 from .actions import Screen, ScreenState, StepResponse
-from .perception import classify_screen, is_full_comments_sheet, on_reels_surface
+from .perception import is_full_comments_sheet, on_reels_surface
 
 PHASE_ON_REELS = "on_reels"
 PHASE_IN_COMMENTS = "in_comments"
@@ -14,6 +15,8 @@ PHASE_CLOSING = "closing"
 
 LIKES_PER_SCROLL = 2
 MAX_SHEET_SCROLLS = 3
+DEFAULT_MIN_LIKES_PER_REEL = 2
+DEFAULT_MAX_LIKES_PER_REEL = 5
 
 
 @dataclass
@@ -35,6 +38,33 @@ def _ctx_int(ctx: dict, key: str, default: int = 0) -> int:
         return int(ctx.get(key, default))
     except (TypeError, ValueError):
         return default
+
+
+def _arm_reel_target(ctx: dict[str, Any]) -> int:
+    """Pick how many comment hearts to like on the current reel (2–5 by default)."""
+    fixed = ctx.get("comment_likes_per_reel_fixed")
+    if fixed is not None:
+        try:
+            target = max(1, int(fixed))
+        except (TypeError, ValueError):
+            target = DEFAULT_MAX_LIKES_PER_REEL
+    else:
+        lo = max(1, _ctx_int(ctx, "comment_likes_min_per_reel", DEFAULT_MIN_LIKES_PER_REEL))
+        hi = max(lo, _ctx_int(ctx, "comment_likes_max_per_reel", DEFAULT_MAX_LIKES_PER_REEL))
+        cap = _ctx_int(ctx, "comment_likes_per_reel", 0)
+        if cap > 0:
+            hi = min(hi, cap)
+        target = random.randint(lo, hi)
+    ctx["comment_likes_this_reel_target"] = target
+    ctx["reel_dwell_done"] = 0
+    return target
+
+
+def _reel_target(ctx: dict[str, Any]) -> int:
+    target = _ctx_int(ctx, "comment_likes_this_reel_target", 0)
+    if target <= 0:
+        return _arm_reel_target(ctx)
+    return target
 
 
 def apply_verified_action(
@@ -79,6 +109,8 @@ def apply_verified_action(
         ctx["comment_likes_since_scroll"] = 0
         ctx["comment_sheet_scrolls"] = 0
         ctx["comment_likes_phase"] = PHASE_ON_REELS
+        ctx["comment_likes_this_reel_target"] = 0
+        ctx["reel_dwell_done"] = 0
         ctx["ready_for_next_reel"] = 1
     elif action == "swipe" and str(params.get("zone", "")).lower() == "reels_rail":
         ctx["reels_scrolled"] = _ctx_int(ctx, "reels_scrolled") + 1
@@ -88,6 +120,7 @@ def apply_verified_action(
         ctx["comment_sheet_scrolls"] = 0
         ctx["comment_likes_phase"] = PHASE_ON_REELS
         ctx["ready_for_next_reel"] = 0
+        _arm_reel_target(ctx)
     elif action in {"navigate", "open_reels"}:
         ctx["reels_tab_opened"] = 1
         ctx["reels_entry_attempts"] = _ctx_int(ctx, "reels_entry_attempts") + 1
@@ -118,7 +151,7 @@ def comment_likes_plan(ctx: dict[str, Any], screen: Screen, state: ScreenState) 
         )
 
     if phase == PHASE_IN_COMMENTS:
-        per_reel = _ctx_int(ctx, "comment_likes_per_reel", 5)
+        per_reel = _reel_target(ctx)
         this_reel = _ctx_int(ctx, "comment_likes_this_reel")
         if this_reel >= per_reel:
             ctx["comment_likes_phase"] = PHASE_CLOSING
@@ -160,29 +193,18 @@ def comment_likes_plan(ctx: dict[str, Any], screen: Screen, state: ScreenState) 
             row_index=this_reel,
         )
 
-    # PHASE_ON_REELS — deeplink first; vision only while entry not yet attempted
-    entry_attempts = _ctx_int(ctx, "reels_entry_attempts")
+    # PHASE_ON_REELS — one navigate to Reels tab, then trust executor (a11y tree is sparse on Reels)
     on_reels = on_reels_surface(state, ctx, screen)
     if not on_reels and not is_full_comments_sheet(screen, activity):
-        if entry_attempts >= 2:
-            ctx["reels_tab_opened"] = 1
-        elif not _ctx_int(ctx, "reels_tab_opened"):
+        if not _ctx_int(ctx, "reels_tab_opened"):
             return MotorPlan(
                 kind="motor",
-                action="open_reels",
-                params={"ui_key": "nav_reels"},
+                action="navigate",
+                params={"tab": "reels", "ui_key": "nav_reels"},
                 say="Opening Reels.",
                 reason="routine enter reels deeplink",
             )
-        elif entry_attempts < 2:
-            return MotorPlan(
-                kind="ground_tap",
-                anchor="nav_reels",
-                action="tap",
-                say="Opening Reels.",
-                reason="routine enter reels vision retry",
-            )
-        # entry_attempts >= 2: proceed to comments even if classifier unsure
+        # navigate already ran — do not vision-retry bottom nav (slow + redundant)
 
     if _ctx_int(ctx, "ready_for_next_reel"):
         ctx["ready_for_next_reel"] = 0
@@ -201,11 +223,22 @@ def comment_likes_plan(ctx: dict[str, Any], screen: Screen, state: ScreenState) 
         ctx["comments_sheet_open"] = 1
         return comment_likes_plan(ctx, screen, state)
 
+    target = _reel_target(ctx)
+    if not _ctx_int(ctx, "reel_dwell_done"):
+        ctx["reel_dwell_done"] = 1
+        return MotorPlan(
+            kind="motor",
+            action="wait",
+            params={"ms": random.randint(1200, 2800)},
+            say=f"Watching reel — then open comments ({target} likes).",
+            reason="routine dwell before comments",
+        )
+
     return MotorPlan(
         kind="ground_tap",
         anchor="comments_icon",
         action="tap",
-        say="Open comments.",
+        say=f"Open comments ({target} likes this reel).",
         reason="routine open comments",
     )
 
@@ -214,9 +247,14 @@ def plan_to_step_response(plan: MotorPlan) -> StepResponse:
     if plan.kind == "done":
         return StepResponse(action="done", say=plan.say, reason=plan.reason, done=True)
     if plan.kind == "motor":
+        action = plan.action
+        params = dict(plan.params or {})
+        if action == "open_reels":
+            action = "navigate"
+            params.setdefault("tab", "reels")
         return StepResponse(
-            action=plan.action,  # type: ignore[arg-type]
-            params=plan.params or {},
+            action=action,  # type: ignore[arg-type]
+            params=params,
             say=plan.say,
             reason=plan.reason,
         )

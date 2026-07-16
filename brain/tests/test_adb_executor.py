@@ -61,11 +61,13 @@ def test_open_app_monkey():
     assert "monkey" in mock_shell.call_args[0][0]
 
 
-def test_navigate_reels_deeplink():
-    with patch("adb.executor.adb.shell") as mock_shell:
+def test_navigate_reels_deeplink_and_tab_tap():
+    with patch("adb.executor.adb.shell") as mock_shell, patch("adb.executor.ig_nav_tap") as mock_tap:
         result = execute("navigate", {"tab": "reels"}, screen_width=1080, screen_height=2400)
     assert result.ok
+    assert mock_shell.called
     assert "instagram://reels" in mock_shell.call_args[0][0]
+    mock_tap.assert_called_once_with("reels", 1080, 2400, serial=None)
 
 
 def test_settle_ms_defaults():

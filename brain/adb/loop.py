@@ -38,6 +38,8 @@ class LoopConfig:
     serial: Optional[str] = None
     autonomous: bool = False
     routine: Optional[RoutineKind] = None
+    reels_max: Optional[int] = None
+    comment_likes_per_reel: Optional[int] = None
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 
@@ -91,6 +93,14 @@ async def run_loop(config: LoopConfig) -> LoopState:
         session_context = routine_resp.session_context.model_dump()
         logger.info("Routine %s goal: %s", config.routine, goal)
 
+    if config.reels_max is not None:
+        session_context["reels_max"] = config.reels_max
+    if config.comment_likes_per_reel is not None:
+        session_context["comment_likes_per_reel_fixed"] = config.comment_likes_per_reel
+        session_context["comment_likes_per_reel"] = config.comment_likes_per_reel
+        session_context["comment_likes_min_per_reel"] = config.comment_likes_per_reel
+        session_context["comment_likes_max_per_reel"] = config.comment_likes_per_reel
+
     try:
         mem = await client.get_memory(device_id)
         if mem.entries:
@@ -143,10 +153,19 @@ async def run_loop(config: LoopConfig) -> LoopState:
             logger.info("Loop ended: %s — %s", response.action, response.reason)
             break
 
-        if response.approval_required or response.action in APPROVAL_ACTIONS:
+        if response.approval_required and response.action in APPROVAL_ACTIONS:
             if not config.autonomous and not _prompt_approval(response.action, response.params):
                 logger.info("User declined %s", response.action)
                 break
+
+        logger.info(
+            "Executing step=%s action=%s params=%s size=%sx%s",
+            state.step,
+            response.action,
+            response.params,
+            observe.screen_width,
+            observe.screen_height,
+        )
 
         before_observe = observe
         result = execute(

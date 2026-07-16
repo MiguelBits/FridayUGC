@@ -14,10 +14,12 @@ from .perception import on_reels_surface, resolve_state
 from .prompt import (
     apply_guards,
     build_step_user_prompt,
+    ctx_int,
     detect_loop,
     fallback_step_data,
     goal_wants_comment_likes,
     goal_wants_instagram,
+    goal_wants_reels_scroll,
     on_instagram,
     parse_step_json,
     response_from_json,
@@ -54,13 +56,29 @@ def _instagram_ui_step(req: StepRequest) -> bool:
 
 
 def _needs_reels_entry(req: StepRequest) -> bool:
-    """Deterministic Reels tab entry before LLM — avoids intent loops on home_feed."""
-    if not goal_wants_comment_likes(req.goal):
-        return False
+    """Deterministic Reels tab entry before LLM — avoids navigate/intent loops."""
     if not on_instagram(req.screen.app or "") and not goal_wants_instagram(req.goal):
         return False
     state = resolve_state(req)
-    return not on_reels_surface(state, req.session_context or {}, req.screen)
+    ctx = req.session_context or {}
+    if on_reels_surface(state, ctx, req.screen):
+        return False
+    if goal_wants_comment_likes(req.goal):
+        return True
+    if goal_wants_reels_scroll(req.goal):
+        return True
+    return False
+
+
+def _needs_reels_swipe(req: StepRequest) -> bool:
+    """On Reels with a scroll-reels goal — swipe without waiting for LLM."""
+    if not goal_wants_reels_scroll(req.goal):
+        return False
+    if not on_instagram(req.screen.app or ""):
+        return False
+    state = resolve_state(req)
+    ctx = req.session_context or {}
+    return on_reels_surface(state, ctx, req.screen) or ctx_int(ctx, "reels_tab_opened") >= 1
 
 
 def _reels_entry_response(req: StepRequest, state) -> StepResponse:
@@ -226,6 +244,29 @@ async def decide_legacy(req: StepRequest, persona_key: str = "lorena") -> StepRe
             guard_reason="eager_reels_entry",
         )
         return entry
+
+    if _needs_reels_swipe(req):
+        swipe = apply_guards(
+            req,
+            StepResponse(
+                action="swipe",
+                params={"direction": "up", "zone": "reels_rail"},
+                say="Next reel.",
+                reason=f"Eager reels scroll — screen_type={state.screen_type}",
+                done=False,
+                needs_screenshot=False,
+                approval_required=False,
+            ),
+        )
+        operator.record_step(
+            session_id=req.session_id,
+            step=req.step,
+            action=swipe,
+            response=swipe.model_dump(),
+            session_context=req.session_context,
+        )
+        _record_step(req, swipe, latency_ms=0.0, guard_triggered=False, guard_reason="eager_reels_swipe")
+        return swipe
 
     if _is_ambiguous_step(req):
         resp = _vision_capture_response(req)

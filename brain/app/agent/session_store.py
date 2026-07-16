@@ -22,6 +22,10 @@ DEFAULT_CTX: dict[str, Any] = {
     "comment_likes_max": 50,
     "comment_likes_this_reel": 0,
     "comment_likes_per_reel": 5,
+    "comment_likes_min_per_reel": 2,
+    "comment_likes_max_per_reel": 5,
+    "comment_likes_this_reel_target": 0,
+    "reel_dwell_done": 0,
     "dms_used": 0,
     "dms_max": 10,
     "follows_used": 0,
@@ -76,7 +80,10 @@ class SessionStore:
 
     def load(self, session_id: str, goal: str = "", device_id: str = "", seed: dict | None = None) -> dict[str, Any]:
         if session_id in self._memory:
-            return deepcopy(self._memory[session_id])
+            data = deepcopy(self._memory[session_id])
+            if seed:
+                data["context"].update(seed)
+            return data
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT context_json, history_json, anchor_retries_json FROM tick_sessions WHERE session_id = ?",

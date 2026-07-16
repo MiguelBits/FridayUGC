@@ -9,8 +9,8 @@ from typing import Any, Optional
 from app.agent.actions import ActionName
 
 from . import adb
-from .gestures import comments_sheet_scroll, reels_next_swipe, scroll_direction, tap_jittered
-from .observe import NAV_TABS
+from .gestures import comments_sheet_scroll, ig_nav_tap, reels_next_swipe, scroll_direction, tap_jittered
+from .nav import IG_NAV_X, nav_xy
 from .screenshot import IG_PACKAGE
 from .validate import validate_tap
 
@@ -105,10 +105,13 @@ def execute(
 
     if action == "swipe":
         direction = str(params.get("direction") or "up")
-        if direction in {"up", "down"} and params.get("intent") == "reels_next":
+        zone = str(params.get("zone") or "").lower()
+        if zone == "reels_rail" or (direction == "up" and params.get("ui_key") == "reels_next"):
             reels_next_swipe(screen_width, screen_height, serial=serial)
-        elif params.get("intent") == "comments_scroll":
+        elif params.get("intent") == "comments_scroll" or zone == "comments_sheet":
             comments_sheet_scroll(screen_width, screen_height, serial=serial)
+        elif direction == "up" or zone in {"reels", "reels_rail"}:
+            reels_next_swipe(screen_width, screen_height, serial=serial)
         else:
             scroll_direction(direction if direction in {"up", "down", "left", "right"} else "up", screen_width, screen_height, serial=serial)
         return ExecutorResult(True, ui_key=ui_key)
@@ -124,22 +127,40 @@ def execute(
         adb.shell(f"monkey -p {shlex.quote(package)} 1", serial=serial)
         return ExecutorResult(True, ui_key=ui_key)
 
+    if action == "open_reels":
+        return execute(
+            "navigate",
+            {"tab": "reels"},
+            screen_width=screen_width,
+            screen_height=screen_height,
+            serial=serial,
+            mode=mode,
+        )
+
     if action == "navigate":
         tab = str(params.get("tab") or "home")
         if tab == "reels":
-            adb.shell(
-                "am start -a android.intent.action.VIEW -d instagram://reels",
-                serial=serial,
-            )
+            # Deeplink alone is unreliable on many IG builds — always tap the Reels tab too.
+            try:
+                adb.shell(
+                    "am start -a android.intent.action.VIEW -d instagram://reels "
+                    "com.instagram.android",
+                    serial=serial,
+                )
+            except adb.AdbError:
+                pass
+            x, y = nav_xy("reels", screen_width, screen_height)
+            err = validate_tap(x, y, screen_width, screen_height)
+            if err:
+                return ExecutorResult(False, err, ui_key="nav_reels")
+            ig_nav_tap("reels", screen_width, screen_height, serial=serial)
             return ExecutorResult(True, ui_key="nav_reels")
-        frac = NAV_TABS.get(tab)
-        if frac:
-            x = int(screen_width * frac[0])
-            y = int(screen_height * frac[1])
+        x, y = nav_xy(tab, screen_width, screen_height)
+        if tab in IG_NAV_X:
             err = validate_tap(x, y, screen_width, screen_height)
             if err:
                 return ExecutorResult(False, err, ui_key=f"nav_{tab}")
-            tap_jittered(x, y, serial=serial)
+            ig_nav_tap(tab, screen_width, screen_height, serial=serial)
             return ExecutorResult(True, ui_key=f"nav_{tab}")
         return ExecutorResult(False, f"unknown navigate tab '{tab}'")
 
@@ -158,7 +179,16 @@ def execute(
 
     if action == "intent":
         name = str(params.get("name") or "")
-        if name in {"reels_next", "next_reel"}:
+        if name in {"enter_reels", "open_reels"}:
+            return execute(
+                "navigate",
+                {"tab": "reels"},
+                screen_width=screen_width,
+                screen_height=screen_height,
+                serial=serial,
+                mode=mode,
+            )
+        if name in {"reels_next", "next_reel", "watch_reel"}:
             reels_next_swipe(screen_width, screen_height, serial=serial)
             return ExecutorResult(True, ui_key=name)
         if name in {"comments_scroll", "scroll_comments"}:

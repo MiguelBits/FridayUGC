@@ -73,6 +73,8 @@ class DayPlanRequest(BaseModel):
     include_stories: bool = True
     comment_likes_target: int = 100
     reels_target: int = 10
+    reels_only: bool = False
+    reels_sessions: int = 4
 
 
 class DayPlanResponse(BaseModel):

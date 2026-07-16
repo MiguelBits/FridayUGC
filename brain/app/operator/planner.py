@@ -31,7 +31,10 @@ class DayPlanner:
         today = datetime.now(tz).date()
         day_str = today.isoformat()
         now = datetime.now(tz)
-        slots = self._slots(today, tz, req, now)
+        if req.reels_only:
+            slots = self._reels_only_slots(today, tz, req, now)
+        else:
+            slots = self._slots(today, tz, req, now)
         tasks: list[TaskRecord] = []
         for slot, kind, goal, ctx, max_steps in slots:
             tasks.append(
@@ -54,6 +57,60 @@ class DayPlanner:
                 f"with {req.comment_likes_target} comment-like budget."
             ),
         )
+
+    def _reels_only_slots(
+        self,
+        today: date,
+        tz: ZoneInfo,
+        req: DayPlanRequest,
+        now: datetime,
+    ) -> list[tuple[datetime, str, str, dict, int]]:
+        start = datetime.combine(today, datetime.min.time(), tzinfo=tz).replace(hour=9)
+        end = datetime.combine(today, datetime.min.time(), tzinfo=tz).replace(hour=21)
+        sessions = max(1, req.reels_sessions)
+        per_session = max(5, req.comment_likes_target // sessions)
+        per_reels = max(3, req.reels_target // sessions)
+        slots: list[tuple[datetime, str, str, dict, int]] = []
+
+        slots.append(
+            (
+                now,
+                "reels_comment_likes",
+                f"Like comments on {per_reels} reels in Reels tab",
+                {
+                    "phase": "reels_comment_likes",
+                    "comment_likes_target": per_session,
+                    "comment_likes_done": 0,
+                    "reels_scrolled": 0,
+                    "reels_target": per_reels,
+                },
+                50,
+            )
+        )
+
+        for i in range(sessions - 1):
+            span = max(1, 12 // sessions)
+            at = start + timedelta(hours=i * span, minutes=random.randint(0, 30))
+            if at > end:
+                continue
+            slots.append(
+                (
+                    at,
+                    "reels_comment_likes",
+                    f"Like comments on {per_reels} reels in Reels tab",
+                    {
+                        "phase": "reels_comment_likes",
+                        "comment_likes_target": per_session,
+                        "comment_likes_done": 0,
+                        "reels_scrolled": 0,
+                        "reels_target": per_reels,
+                    },
+                    50,
+                )
+            )
+
+        slots.sort(key=lambda s: s[0])
+        return slots
 
     def _slots(
         self,

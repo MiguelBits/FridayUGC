@@ -75,12 +75,11 @@ _ROUTINE_GOALS: dict[RoutineKind, str] = {
         "Like reels that match gym, meal prep, outfit try-on, or Miami aesthetic — stay in budget."
     ),
     "reels_comment_likes": (
-        "Open Instagram Reels tab. Process exactly 10 reels. "
-        "For EACH reel: (1) tap the comments icon to open the comments sheet, "
-        "(2) like exactly 5 comments using like_comment on comment heart buttons — "
-        "do NOT post new comments, (3) press back to return to the reel, "
-        "(4) swipe up to the next reel. "
-        "Repeat until 10 reels done (50 comment likes total). Then done with summary."
+        "Open Instagram Reels tab. Process reels until reels_max. "
+        "For EACH reel: (1) dwell briefly, (2) tap the comments icon to open the comments sheet, "
+        "(3) like 2–5 comments using like_comment on comment heart buttons — "
+        "do NOT post new comments, (4) press back to close comments and return to the reel, "
+        "(5) swipe up to the next reel. Repeat until reels_max. Then done with summary."
     ),
     "stories": (
         "Open Instagram story tray. Watch stories from fitness/fashion creators. "
@@ -149,11 +148,12 @@ def build_routine(req: RoutineRequest) -> RoutineResponse:
         "reels_scroll": ["Navigate reels", "Swipe up through reels", "Like niche posts", "Done"],
         "reels_comment_likes": [
             "Navigate reels tab",
+            "Dwell on reel",
             "Open comments on reel",
-            "like_comment x5",
-            "press back",
+            "like_comment x2–5",
+            "press back — close comments",
             "swipe up — next reel",
-            "Repeat x10 reels",
+            "Repeat until reels_max",
             "Done summary",
         ],
         "stories": ["Open story tray", "view_story each", "like_story best ones", "Done"],

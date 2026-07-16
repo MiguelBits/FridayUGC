@@ -55,9 +55,12 @@ async def handle_tick(req: TickRequest) -> TickResponse:
             streak = _store.bump_anchor_retry(req.session_id, ui_key)
             _store.append_history(req.session_id, f"{req.last_result.action}(unverified#{streak})")
             if streak >= 3 and ui_key == "comments_icon":
-                ctx["ready_for_next_reel"] = 0
                 ctx["comment_likes_phase"] = "on_reels"
                 ctx["comments_sheet_open"] = 0
+                ctx["comment_likes_this_reel"] = 0
+                ctx["comment_likes_this_reel_target"] = 0
+                ctx["reel_dwell_done"] = 0
+                ctx["ready_for_next_reel"] = 1
 
     # --- plan next action ---
     grounded = False

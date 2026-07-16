@@ -17,6 +17,8 @@ env/
 *.key
 apitoken.txt
 aws-credentials*
+brain/data/instagram/cookies.json
+brain/data/instagram/session.json
 friday-keystore.jks
 keystore.properties
 

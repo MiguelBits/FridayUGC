@@ -1,19 +1,27 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_BRAIN_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = _BRAIN_ROOT.parent
 
 
 class Settings(BaseSettings):
     """Runtime configuration, loaded from environment / .env.
 
     Everything here is overridable via env vars prefixed with FRIDAY_.
+    Loads brain/.env first, then repo-root .env (root wins on conflicts).
     """
 
     model_config = SettingsConfigDict(
         env_prefix="FRIDAY_",
-        env_file=".env",
+        env_file=(
+            _BRAIN_ROOT / ".env",
+            _REPO_ROOT / ".env",
+        ),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -73,6 +81,30 @@ class Settings(BaseSettings):
     ugc_dms_max: int = 10
     ugc_follows_max: int = 3
     ugc_saves_max: int = 5
+    ugc_comment_likes_per_reel: int = 3
+    ugc_comment_likes_max: int = 50
+
+    # --- Instagram Private API (instagrapi) — preferred over ADB ---
+    ig_username: str = ""
+    ig_password: str = ""
+    ig_session_path: str = ""  # default: brain/data/instagram/session.json
+    ig_session_json: str = ""  # paste Cookie-Editor JSON for VPS / cookie login
+    ig_proxy: str = ""
+    ig_delay_min: float = 1.0
+    ig_delay_max: float = 3.0
+    ig_read_only: bool = False
+    ig_require_approval: bool = True
+    ig_worker_id: str = "instagram-api"
+    ig_poll_seconds: float = 30.0
+    ig_reel_dwell_min: float = 2.0
+    ig_reel_dwell_max: float = 5.5
+    ig_reel_scroll_min: float = 1.5
+    ig_reel_scroll_max: float = 4.0
+    ig_comment_like_delay_min: float = 0.8
+    ig_comment_like_delay_max: float = 2.5
+    ig_verification_code: str = ""
+    ig_sessionid: str = ""
+    ig_reels_hashtags: str = "fitness,gym,reels"
 
     @property
     def approval_action_set(self) -> set[str]:

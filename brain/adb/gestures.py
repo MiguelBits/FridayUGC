@@ -20,6 +20,13 @@ def tap_jittered(x: int, y: int, *, serial: Optional[str] = None) -> tuple[int, 
     return jx, jy
 
 
+def ig_nav_tap(tab: str, screen_width: int, screen_height: int, *, serial: Optional[str] = None) -> tuple[int, int]:
+    from .nav import nav_xy
+
+    x, y = nav_xy(tab, screen_width, screen_height)
+    return tap_jittered(x, y, serial=serial)
+
+
 def reels_next_swipe(screen_width: int, screen_height: int, *, serial: Optional[str] = None) -> None:
     x = int(screen_width * 0.85)
     y1 = int(screen_height * 0.52)
