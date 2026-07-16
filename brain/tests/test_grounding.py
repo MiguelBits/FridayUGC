@@ -25,7 +25,7 @@ def test_ground_comments_icon_mock():
     resp = asyncio.run(ground_target(req))
     assert resp.action == "tap"
     assert resp.params["x"] == 972
-    assert resp.params["y"] == 1344
+    assert resp.params["y"] == 1248  # 0.52 H — above share/repost zone
     assert resp.confidence >= 0.5
 
 
@@ -88,7 +88,8 @@ def test_parse_coord_accepts_string_numbers():
     assert _parse_coord(512.0) == 512
 
 
-def test_comments_icon_band_relaxed():
+def test_comments_icon_band_rejects_share():
     w, h = 1080, 2400
-    assert _comments_icon_band_ok(990, 1344, w, h)
-    assert not _comments_icon_band_ok(990, 1500, w, h)
+    assert _comments_icon_band_ok(990, 1248, w, h)
+    assert _comments_icon_band_ok(990, 1400, w, h)
+    assert not _comments_icon_band_ok(990, 1600, w, h)  # share floor 0.64

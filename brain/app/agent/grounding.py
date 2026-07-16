@@ -16,14 +16,16 @@ from .actions import GroundRequest, GroundResponse, ScreenElement, SomMark
 
 ANCHOR_HINTS: dict[str, str] = {
     "comments_icon": (
-        "Instagram Reels speech-bubble / comments icon on the RIGHT rail — "
-        "the icon DIRECTLY BELOW the reel heart/like button. NOT share. NOT audio disc."
+        "Instagram Reels COMMENTS icon on the RIGHT rail: speech-bubble with lines "
+        "(or comment count under it). It is DIRECTLY BELOW the large reel heart/like, "
+        "and DIRECTLY ABOVE the share/repost/paper-plane icon. "
+        "Tap the bubble — NEVER the share/repost/send icon below it, NEVER the audio disc."
     ),
     "comment_heart": (
         "Small heart/like button on a COMMENT ROW inside the bottom comments sheet "
         "(white sheet over the reel). NOT the big reel like on the right rail."
     ),
-    "nav_reels": "Bottom navigation bar Reels tab icon (second from left, clapperboard).",
+    "nav_reels": "Bottom navigation bar Reels tab icon (center clapperboard; not Search).",
     "reel_like": "Large heart on Reels right rail to like the video itself.",
 }
 
@@ -143,16 +145,21 @@ def _pick_mock_mark(req: GroundRequest) -> int | None:
         return None
     anchor = req.anchor
     if anchor == "comments_icon":
+        from .flows.defs import COMMENTS_BAND_X_MIN, COMMENTS_BAND_Y_MAX, COMMENTS_BAND_Y_MIN
+
         h = req.screen_height or 2400
         w = req.screen_width or 1080
         band = [
             m for m in req.som_marks
-            if m.x > w * 0.78 and h * 0.47 <= m.y <= h * 0.57
+            if m.x > w * COMMENTS_BAND_X_MIN and h * COMMENTS_BAND_Y_MIN <= m.y <= h * COMMENTS_BAND_Y_MAX
         ]
         if band:
-            band.sort(key=lambda m: abs(m.y - h * 0.52))
-            return band[0].mark_id
-        sorted_m = sorted(req.som_marks, key=lambda m: (-m.x, m.y))
+            # Prefer marks with "comment" text; else closest to 52% H (above share).
+            named = [m for m in band if m.text and "comment" in m.text.lower()]
+            pool = named or band
+            pool.sort(key=lambda m: abs(m.y - h * 0.52))
+            return pool[0].mark_id
+        sorted_m = sorted(req.som_marks, key=lambda m: (-m.x, abs(m.y - h * 0.52)))
         return sorted_m[0].mark_id if sorted_m else None
     if anchor == "comment_heart":
         w = req.screen_width or 1080
@@ -216,12 +223,19 @@ def _parse_coord(value: Any) -> int | None:
 
 
 def _comments_icon_band_ok(xi: int, yi: int, w: int, h: int) -> bool:
-    """comments_icon rail band — relaxed for device variance."""
+    """comments_icon rail band — tight so share/repost (below) is rejected."""
+    from .flows.defs import (
+        COMMENTS_BAND_SHARE_FLOOR,
+        COMMENTS_BAND_X_MIN,
+        COMMENTS_BAND_Y_MAX,
+        COMMENTS_BAND_Y_MIN,
+    )
+
     if w <= 0 or h <= 0:
         return True
-    if xi > w * 0.78 and yi >= h * 0.62:
+    if xi > w * COMMENTS_BAND_X_MIN and yi >= h * COMMENTS_BAND_SHARE_FLOOR:
         return False
-    if xi > w * 0.78 and not (h * 0.45 <= yi <= h * 0.60):
+    if xi > w * COMMENTS_BAND_X_MIN and not (h * COMMENTS_BAND_Y_MIN <= yi <= h * COMMENTS_BAND_Y_MAX):
         return False
     return True
 
@@ -242,10 +256,13 @@ def _mock_ground(req: GroundRequest) -> GroundResponse:
                 )
     w = req.screen_width or 1080
     h = req.screen_height or 2400
+    from adb.nav import nav_xy
+    from .flows.defs import comments_icon_xy
+
     presets = {
-        "comments_icon": (int(w * 0.90), int(h * 0.56)),
+        "comments_icon": comments_icon_xy(w, h),
         "comment_heart": (int(w * 0.12), int(h * (0.68 + 0.075 * req.row_index))),
-        "nav_reels": (int(w * 0.30), int(h * 0.93)),
+        "nav_reels": nav_xy("reels", w, h),
         "reel_like": (int(w * 0.92), int(h * 0.48)),
     }
     x, y = presets.get(req.anchor, (w // 2, h // 2))

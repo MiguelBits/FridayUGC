@@ -1,14 +1,15 @@
-"""Build ObserveBundle from ADB (vision-first, empty element tree in v1)."""
+"""Build ObserveBundle from ADB (screenshot + light uiautomator text)."""
 
 from __future__ import annotations
 
 from typing import Optional
 
-from app.agent.actions import ObserveBundle, Screen
+from app.agent.actions import ObserveBundle, Screen, ScreenElement
 
 from . import adb
 from .device import foreground_app, is_instagram_foreground
 from .screenshot import IG_PACKAGE, capture_b64, capture_png
+from .uiauto import dump_texts
 
 
 def build_observe(
@@ -16,6 +17,7 @@ def build_observe(
     serial: Optional[str] = None,
     include_screenshot: bool = True,
     ig_only_screenshot: bool = True,
+    include_ui_texts: bool = True,
 ) -> ObserveBundle:
     width, height = adb.wm_size(serial=serial)
     package, activity = foreground_app(serial=serial)
@@ -34,10 +36,17 @@ def build_observe(
                 shot_b64 = capture_b64(serial=serial)
             except adb.AdbError:
                 shot_b64 = None
+    elements: list[ScreenElement] = []
+    if include_ui_texts:
+        try:
+            for i, text in enumerate(dump_texts(serial=serial, limit=60)):
+                elements.append(ScreenElement(id=i, text=text, role="text", clickable=False))
+        except Exception:
+            elements = []
     screen = Screen(
         app=package or "",
         activity=activity or "",
-        elements=[],
+        elements=elements,
         screenshot_b64=shot_b64,
     )
     return ObserveBundle(

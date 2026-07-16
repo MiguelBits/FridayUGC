@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .actions import Screen, ScreenState, StepResponse
+from .flows.ads import is_sponsored_ad
 from .perception import is_full_comments_sheet, on_reels_surface
 
 PHASE_ON_REELS = "on_reels"
@@ -96,10 +97,15 @@ def apply_verified_action(
     elif action == "tap":
         ui = str(params.get("ui_key", ""))
         if ui == "comments_icon":
+            # Only advance into comments after verified open (never share/repost).
+            if verified != "verified":
+                return
             ctx["comments_sheet_open"] = 1
             ctx["comment_likes_phase"] = PHASE_IN_COMMENTS
             ctx["comment_likes_since_scroll"] = 0
             ctx["comment_sheet_scrolls"] = 0
+            ctx["wrong_sheet"] = ""
+            ctx["comments_icon_offset_idx"] = 0
     elif action == "scroll" and str(params.get("zone", "")).lower() == "comments_sheet":
         ctx["comment_likes_since_scroll"] = 0
         ctx["comment_sheet_scrolls"] = _ctx_int(ctx, "comment_sheet_scrolls") + 1
@@ -218,10 +224,34 @@ def comment_likes_plan(ctx: dict[str, Any], screen: Screen, state: ScreenState) 
             reason="routine next reel",
         )
 
+    # Dismiss share/repost if last open_comments landed wrong.
+    if str(ctx.get("wrong_sheet", "")).startswith("share") or str(ctx.get("wrong_sheet", "")) == "share":
+        ctx["wrong_sheet"] = ""
+        ctx["comments_sheet_open"] = 0
+        return MotorPlan(
+            kind="motor",
+            action="press",
+            params={"key": "back"},
+            say="Closing share sheet — retry comments.",
+            reason="routine dismiss wrong_sheet share",
+        )
+
     if is_full_comments_sheet(screen, activity) or _ctx_int(ctx, "comments_sheet_open"):
         ctx["comment_likes_phase"] = PHASE_IN_COMMENTS
         ctx["comments_sheet_open"] = 1
         return comment_likes_plan(ctx, screen, state)
+
+    # Ads (Patrocinado / no republish) — swipe away; do not open comments.
+    if is_sponsored_ad(screen):
+        ctx["reel_dwell_done"] = 0
+        ctx["comment_likes_this_reel_target"] = 0
+        return MotorPlan(
+            kind="motor",
+            action="swipe",
+            params={"direction": "up", "zone": "reels_rail"},
+            say="Skipping sponsored reel.",
+            reason="routine skip ad Patrocinado",
+        )
 
     target = _reel_target(ctx)
     if not _ctx_int(ctx, "reel_dwell_done"):

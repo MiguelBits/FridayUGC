@@ -34,7 +34,29 @@ def _texts(screen: Screen) -> list[str]:
     return [e.text.lower() for e in screen.elements]
 
 
+def has_share_sheet_signals(screen: Screen) -> bool:
+    """True when share/repost sheet is open — must not be treated as comments."""
+    texts = _texts(screen)
+    if not texts:
+        return False
+    hints = (
+        "repost",
+        "add to story",
+        "add to your story",
+        "copy link",
+        "share to",
+        "send to",
+        "share reel",
+    )
+    joined = " ".join(texts)
+    if any(h in joined for h in hints) and not any("reply" in t for t in texts):
+        return True
+    return any("repost" in t for t in texts)
+
+
 def has_comments_sheet_signals(screen: Screen) -> bool:
+    if has_share_sheet_signals(screen):
+        return False
     texts = _texts(screen)
     if any("reply" in t for t in texts):
         return True

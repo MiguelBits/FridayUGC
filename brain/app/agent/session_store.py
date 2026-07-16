@@ -40,6 +40,8 @@ DEFAULT_CTX: dict[str, Any] = {
     "ready_for_next_reel": 0,
     "comment_likes_since_scroll": 0,
     "comment_sheet_scrolls": 0,
+    "wrong_sheet": "",
+    "comments_icon_offset_idx": 0,
 }
 
 ANCHOR_RETRY: dict[str, int] = {}

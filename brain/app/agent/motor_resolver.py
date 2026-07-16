@@ -3,27 +3,62 @@
 from __future__ import annotations
 
 from .actions import GroundRequest, ObserveBundle, StepResponse
+from .flows.defs import comments_icon_xy
+from .flows.memory import next_comments_y_frac
 from .grounding import ground_target
 from .routines import MotorPlan
+
+
+def _teach_coord(device_id: str, ui_key: str) -> tuple[int, int] | None:
+    """Prefer human-taught open_comments coords (TeachStore) when n_ok >= 3."""
+    if not device_id or ui_key != "comments_icon":
+        return None
+    try:
+        from adb.teach.store import TeachStore
+
+        return TeachStore().get_skill_coord("open_comments", device_id)
+    except Exception:
+        try:
+            from brain.adb.teach.store import TeachStore
+
+            return TeachStore().get_skill_coord("open_comments", device_id)
+        except Exception:
+            return None
 
 
 def _memory_coord(device_id: str, ui_key: str) -> tuple[int, int] | None:
     if not device_id or not ui_key:
         return None
+    taught = _teach_coord(device_id, ui_key)
+    if taught:
+        return taught
     try:
         from ..learning.store import LearningStore
 
         for entry in LearningStore().get_memory(device_id):
             if entry.ui_key != ui_key or entry.x <= 0 or entry.y <= 0:
                 continue
-            if entry.success_count >= entry.fail_count:
+            if entry.success_count > entry.fail_count:
                 return entry.x, entry.y
     except Exception:
         return None
     return None
 
 
-def _motor_fallback(plan: MotorPlan) -> StepResponse | None:
+def _deterministic_comments(plan: MotorPlan, observe: ObserveBundle, ctx: dict | None) -> StepResponse:
+    w = observe.screen_width or 1080
+    h = observe.screen_height or 2400
+    y_frac = next_comments_y_frac(ctx or {}, screen_width=w, screen_height=h)
+    xi, yi = comments_icon_xy(w, h, y_frac=y_frac)
+    return StepResponse(
+        action=plan.action,  # type: ignore[arg-type]
+        params={"x": xi, "y": yi, "ui_key": plan.anchor, "y_frac": y_frac},
+        say=plan.say or "Open comments (deterministic).",
+        reason=f"{plan.reason} — deterministic comments_icon y_frac={y_frac:.3f}",
+    )
+
+
+def _motor_fallback(plan: MotorPlan, observe: ObserveBundle | None = None, ctx: dict | None = None) -> StepResponse | None:
     if plan.anchor == "nav_reels":
         return StepResponse(
             action="navigate",
@@ -31,6 +66,8 @@ def _motor_fallback(plan: MotorPlan) -> StepResponse | None:
             say=plan.say or "Opening Reels.",
             reason=f"{plan.reason} — navigate fallback",
         )
+    if plan.anchor == "comments_icon" and observe is not None:
+        return _deterministic_comments(plan, observe, ctx)
     return None
 
 
@@ -39,16 +76,35 @@ async def resolve_plan(
     observe: ObserveBundle,
     device_id: str,
     screen_type: str = "",
+    session_context: dict | None = None,
 ) -> tuple[StepResponse, bool]:
-    """Return StepResponse ready for phone executor; grounded=True if vision used."""
+    """Return StepResponse ready for phone executor; grounded=True if vision used.
+
+    Resolution order for comments_icon: teach → memory → vision → deterministic %.
+    """
     if plan.kind != "ground_tap":
         from .routines import plan_to_step_response
 
         return plan_to_step_response(plan), False
 
+    ctx = session_context or {}
+    mem = _memory_coord(device_id, plan.anchor)
+    if mem and plan.anchor == "comments_icon":
+        xi, yi = mem
+        taught = _teach_coord(device_id, plan.anchor)
+        src = "teach skill" if taught and taught == mem else "device memory (success > fail)"
+        return (
+            StepResponse(
+                action=plan.action,  # type: ignore[arg-type]
+                params={"x": xi, "y": yi, "ui_key": plan.anchor},
+                say=plan.say,
+                reason=f"{plan.anchor} from {src}",
+            ),
+            False,
+        )
+
     shot = (observe.screen.screenshot_b64 or "").strip()
     if not shot:
-        mem = _memory_coord(device_id, plan.anchor)
         if mem:
             xi, yi = mem
             return (
@@ -60,7 +116,7 @@ async def resolve_plan(
                 ),
                 False,
             )
-        fallback = _motor_fallback(plan)
+        fallback = _motor_fallback(plan, observe, ctx)
         if fallback:
             return fallback, False
         return (
@@ -88,7 +144,6 @@ async def resolve_plan(
     )
     ground = await ground_target(req)
     if ground.needs_screenshot or not ground.params:
-        mem = _memory_coord(device_id, plan.anchor)
         if mem:
             xi, yi = mem
             return (
@@ -100,7 +155,7 @@ async def resolve_plan(
                 ),
                 False,
             )
-        fallback = _motor_fallback(plan)
+        fallback = _motor_fallback(plan, observe, ctx)
         if fallback:
             return fallback, False
         return (

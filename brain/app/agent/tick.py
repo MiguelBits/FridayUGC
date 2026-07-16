@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 
 from .actions import LastResult, StepRequest, TickRequest, TickResponse
+from .flows.memory import bump_comments_offset, record_anchor_outcome
+from .flows.surface import wrong_sheet
 from .motor_resolver import resolve_intent_step_async, resolve_plan
 from .perception import classify_screen
 from .router import decide
@@ -14,6 +16,12 @@ from .verifier import verify_last
 
 logger = logging.getLogger(__name__)
 _store = SessionStore()
+
+
+def _last_shot(last) -> str:
+    if not last or not last.after_observe:
+        return ""
+    return (last.after_observe.screen.screenshot_b64 or "").strip()
 
 
 async def handle_tick(req: TickRequest) -> TickResponse:
@@ -35,11 +43,44 @@ async def handle_tick(req: TickRequest) -> TickResponse:
         req.last_result.change_score = score
 
         ui_key = req.last_result.ui_key or str(req.last_result.params.get("ui_key", ""))
-        counts = (
-            verified == "verified"
-            or req.last_result.action not in {"tap", "like_comment"}
-            or (req.last_result.executor_ok and verified != "failed")
-        )
+        params = req.last_result.params or {}
+        after_shot = _last_shot(req.last_result)
+
+        # comments_icon: never soft-count; share sheet → dismiss + rotate Y offset
+        if ui_key == "comments_icon" and req.last_result.executor_ok:
+            after_screen = req.last_result.after_observe.screen if req.last_result.after_observe else screen
+            if wrong_sheet(after_screen, screenshot_b64=after_shot, activity=activity):
+                ctx["wrong_sheet"] = "share"
+                verified = "unverified"
+                req.last_result.verified = verified
+            try:
+                x = int(params.get("x") or 0)
+                y = int(params.get("y") or 0)
+            except (TypeError, ValueError):
+                x, y = 0, 0
+            if x > 0 and y > 0:
+                record_anchor_outcome(
+                    req.device_id,
+                    ui_key,
+                    x=x,
+                    y=y,
+                    success=(verified == "verified"),
+                    screen_width=req.observe.screen_width,
+                    screen_height=req.observe.screen_height,
+                    screenshot_b64=after_shot if verified == "verified" else None,
+                )
+            if verified != "verified":
+                bump_comments_offset(ctx)
+
+        # Taps/likes only advance FSM when verified; motors may soft-count.
+        if ui_key == "comments_icon" or req.last_result.action == "like_comment":
+            counts = verified == "verified"
+        else:
+            counts = (
+                verified == "verified"
+                or req.last_result.action not in {"tap", "like_comment"}
+                or (req.last_result.executor_ok and verified != "failed")
+            )
         if req.last_result.executor_ok and counts:
             apply_verified_action(
                 ctx,
@@ -61,6 +102,7 @@ async def handle_tick(req: TickRequest) -> TickResponse:
                 ctx["comment_likes_this_reel_target"] = 0
                 ctx["reel_dwell_done"] = 0
                 ctx["ready_for_next_reel"] = 1
+                ctx["wrong_sheet"] = ""
 
     # --- plan next action ---
     grounded = False
@@ -68,7 +110,9 @@ async def handle_tick(req: TickRequest) -> TickResponse:
 
     if plan:
         if plan.kind == "ground_tap":
-            step, grounded = await resolve_plan(plan, req.observe, req.device_id, state.screen_type)
+            step, grounded = await resolve_plan(
+                plan, req.observe, req.device_id, state.screen_type, session_context=ctx
+            )
         else:
             step = plan_to_step_response(plan)
     else:

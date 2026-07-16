@@ -52,7 +52,7 @@ CI runs the full brain suite on every push to `brain/**` (see [`.github/workflow
 - **Observability** — per-step session traces at `GET /runs`, `GET /runs/{id}`, `GET /runs/metrics`.
 - **Mock LLM** — full pipeline in CI without GPU (`FRIDAY_LLM_PROVIDER=mock`).
 
-Deeper docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/TECH_STACK.md`](docs/TECH_STACK.md), [`docs/ADB_MIGRATION.md`](docs/ADB_MIGRATION.md).
+Deeper docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/TECH_STACK.md`](docs/TECH_STACK.md), [`docs/ADB_MIGRATION.md`](docs/ADB_MIGRATION.md), [`docs/flows/`](docs/flows/) (Instagram open-reels / open-comments agentic flows).
 
 ## Quick start
 

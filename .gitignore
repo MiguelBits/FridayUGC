@@ -53,6 +53,7 @@ brain/data/**/*.db-shm
 brain/data/**/*.db-wal
 brain/data/**/*.sqlite
 brain/data/**/*.sqlite3
+brain/data/teach/
 
 # Model weights (never commit)
 models/

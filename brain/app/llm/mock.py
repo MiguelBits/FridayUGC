@@ -60,7 +60,7 @@ class MockClient(LLMClient):
             presets = {
                 "comments_icon": (int(w * 0.93), int(h * 0.52)),
                 "comment_heart": (int(w * 0.86), int(h * (0.55 + 0.07 * row))),
-                "nav_reels": (int(w * 0.30), int(h * 0.93)),
+                "nav_reels": (int(w * 0.50), int(h * (0.955 if h / max(w, 1) >= 2.1 else 0.965))),
             }
             x, y = presets.get(anchor, (w // 2, h // 2))
             action = "like_comment" if anchor == "comment_heart" else "tap"

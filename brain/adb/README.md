@@ -37,6 +37,16 @@ FRIDAY_GROUNDING_ENABLED=true python -m brain.adb.run \
   --routine reels_comment_likes --mode full --max-steps 60
 ```
 
+### Learn open-comments (20 trials + screenshots)
+
+From `brain/` on Windows Git Bash (venv is `Scripts`, not `bin`):
+
+```bash
+source .venv/Scripts/activate && python -m adb.probe_comments --trials 20 --out data/probes/comments_open
+```
+
+Probe now: enter Reels (retry nav) → skip `Patrocinado` ads → tap comments → only count success if UI text shows Comentários/Comments. Flow docs: [`docs/flows/`](../../docs/flows/).
+
 ## Flags
 
 | Flag | Purpose |

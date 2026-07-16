@@ -1,0 +1,382 @@
+{
+  "ran_at": "2026-07-16T21:02:26.029769+00:00",
+  "device_id": "555c96f0",
+  "trials": 20,
+  "open_reels_ok": false,
+  "open_comments_ok": 3,
+  "wrong_sheet": 0,
+  "no_change": 17,
+  "best_y_frac": 0.485,
+  "offset_wins": {
+    "0.485": 1,
+    "0.535": 1,
+    "0.500": 1
+  },
+  "screen": {
+    "width": 1440,
+    "height": 3216
+  },
+  "trials_detail": [
+    {
+      "trial": 0,
+      "x": 1296,
+      "y": 1672,
+      "y_frac": 0.52,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 60.52389941690962,
+        "top_mean": 47.61520562084639,
+        "bottom_light_frac": 0.05652332361516035,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_00_y0.520.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_00_y0.520.png",
+      "activity": "com.instagram.mainactivity.InstagramMainActivity"
+    },
+    {
+      "trial": 1,
+      "x": 1296,
+      "y": 1608,
+      "y_frac": 0.5,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 94.19615160349855,
+        "top_mean": 63.239012730202994,
+        "bottom_light_frac": 0.25301020408163266,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_01_y0.500.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_01_y0.500.png",
+      "activity": "com.instagram.mainactivity.InstagramMainActivity"
+    },
+    {
+      "trial": 2,
+      "x": 1296,
+      "y": 1559,
+      "y_frac": 0.485,
+      "outcome": "comments_ok",
+      "label": "comments_sheet",
+      "signals": {
+        "label": "comments_sheet",
+        "bottom_mean": 174.61216472303207,
+        "top_mean": 130.8795248356663,
+        "bottom_light_frac": 0.6059110787172012,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_02_y0.485.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_02_y0.485.png",
+      "activity": "com.instagram.mainactivity.InstagramMainActivity"
+    },
+    {
+      "trial": 3,
+      "x": 1296,
+      "y": 1720,
+      "y_frac": 0.535,
+      "outcome": "comments_ok",
+      "label": "comments_sheet",
+      "signals": {
+        "label": "comments_sheet",
+        "bottom_mean": 178.40459183673468,
+        "top_mean": 132.53213335023452,
+        "bottom_light_frac": 0.47599854227405247,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_03_y0.535.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_03_y0.535.png",
+      "activity": "com.instagram.inappbrowser.fragments.BrowserLiteInMainProcessIGActivity"
+    },
+    {
+      "trial": 4,
+      "x": 1296,
+      "y": 1511,
+      "y_frac": 0.47000000000000003,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 60.3592055393586,
+        "top_mean": 29.765315176647412,
+        "bottom_light_frac": 0.157332361516035,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_04_y0.470.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_04_y0.470.png",
+      "activity": "com.instagram.mainactivity.InstagramMainActivity"
+    },
+    {
+      "trial": 5,
+      "x": 1296,
+      "y": 1672,
+      "y_frac": 0.52,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 100.48502186588921,
+        "top_mean": 130.81866251380765,
+        "bottom_light_frac": 0.1198469387755102,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_05_y0.520.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_05_y0.520.png",
+      "activity": "com.instagram.mainactivity.InstagramMainActivity"
+    },
+    {
+      "trial": 6,
+      "x": 1296,
+      "y": 1608,
+      "y_frac": 0.5,
+      "outcome": "comments_ok",
+      "label": "comments_sheet",
+      "signals": {
+        "label": "comments_sheet",
+        "bottom_mean": 246.17974489795918,
+        "top_mean": 203.52798652735274,
+        "bottom_light_frac": 0.9625,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_06_y0.500.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_06_y0.500.png",
+      "activity": "com.instagram.inappbrowser.fragments.BrowserLiteInMainProcessIGActivity"
+    },
+    {
+      "trial": 7,
+      "x": 1296,
+      "y": 1559,
+      "y_frac": 0.485,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 15.645743440233236,
+        "top_mean": 26.302935371131593,
+        "bottom_light_frac": 0.0020408163265306124,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_07_y0.485.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_07_y0.485.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 8,
+      "x": 1296,
+      "y": 1720,
+      "y_frac": 0.535,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 26.44513119533528,
+        "top_mean": 24.26424678123246,
+        "bottom_light_frac": 0.008870262390670553,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_08_y0.535.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_08_y0.535.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 9,
+      "x": 1296,
+      "y": 1511,
+      "y_frac": 0.47000000000000003,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 49.931472303206995,
+        "top_mean": 24.269670246093114,
+        "bottom_light_frac": 0.023739067055393585,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_09_y0.470.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_09_y0.470.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 10,
+      "x": 1296,
+      "y": 1672,
+      "y_frac": 0.52,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 49.744919825072884,
+        "top_mean": 22.058752693624033,
+        "bottom_light_frac": 0.02381195335276968,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_10_y0.520.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_10_y0.520.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 11,
+      "x": 1296,
+      "y": 1608,
+      "y_frac": 0.5,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 49.77427113702624,
+        "top_mean": 22.18659797548123,
+        "bottom_light_frac": 0.023731778425655978,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_11_y0.500.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_11_y0.500.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 12,
+      "x": 1296,
+      "y": 1559,
+      "y_frac": 0.485,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 49.7291472303207,
+        "top_mean": 22.19199427774659,
+        "bottom_light_frac": 0.023607871720116618,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_12_y0.485.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_12_y0.485.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 13,
+      "x": 1296,
+      "y": 1720,
+      "y_frac": 0.535,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 49.7291472303207,
+        "top_mean": 22.19199427774659,
+        "bottom_light_frac": 0.023607871720116618,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_13_y0.535.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_13_y0.535.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 14,
+      "x": 1296,
+      "y": 1511,
+      "y_frac": 0.47000000000000003,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 49.7291472303207,
+        "top_mean": 22.19199427774659,
+        "bottom_light_frac": 0.023607871720116618,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_14_y0.470.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_14_y0.470.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 15,
+      "x": 1296,
+      "y": 1672,
+      "y_frac": 0.52,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 49.7291472303207,
+        "top_mean": 22.193868496821977,
+        "bottom_light_frac": 0.023607871720116618,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_15_y0.520.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_15_y0.520.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 16,
+      "x": 1296,
+      "y": 1608,
+      "y_frac": 0.5,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 49.7291472303207,
+        "top_mean": 22.228908244753093,
+        "bottom_light_frac": 0.023607871720116618,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_16_y0.500.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_16_y0.500.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 17,
+      "x": 1296,
+      "y": 1559,
+      "y_frac": 0.485,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 49.77427113702624,
+        "top_mean": 22.218034152436484,
+        "bottom_light_frac": 0.023731778425655978,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_17_y0.485.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_17_y0.485.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 18,
+      "x": 1296,
+      "y": 1720,
+      "y_frac": 0.535,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 49.77427113702624,
+        "top_mean": 22.228926353149955,
+        "bottom_light_frac": 0.023731778425655978,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_18_y0.535.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_18_y0.535.png",
+      "activity": "com.instagram.leadads.activity.LeadAdsActivity"
+    },
+    {
+      "trial": 19,
+      "x": 1296,
+      "y": 1511,
+      "y_frac": 0.47000000000000003,
+      "outcome": "no_change_or_unknown",
+      "label": "unknown",
+      "signals": {
+        "label": "unknown",
+        "bottom_mean": 90.65267492711371,
+        "top_mean": 62.3531137388407,
+        "bottom_light_frac": 0.07111516034985423,
+        "a11y_comments": false
+      },
+      "before": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\before\\trial_19_y0.470.png",
+      "after": "C:\\Users\\mcvco\\Desktop\\Github_MiguelBits\\FridayUGC\\brain\\data\\probes\\comments_open\\after\\trial_19_y0.470.png",
+      "activity": "com.instagram.mainactivity.InstagramMainActivity"
+    }
+  ],
+  "docs": "docs/flows/OPEN_COMMENTS.md"
+}

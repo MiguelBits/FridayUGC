@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from .actions import Screen, ScreenState, TickLastResult
+from .actions import Screen, TickLastResult
+from .flows.surface import comments_open_ok, wrong_sheet
 from .perception import classify_screen, is_full_comments_sheet, on_reels_surface
 
 
@@ -19,6 +20,13 @@ def change_score(before: Screen, after: Screen) -> float:
     return min(1.0, abs(len(before.elements) - len(after.elements)) * 0.05 + 0.1)
 
 
+def _shot(result: TickLastResult, which: str = "after") -> str:
+    obs = result.after_observe if which == "after" else result.before_observe
+    if not obs:
+        return ""
+    return (obs.screen.screenshot_b64 or "").strip()
+
+
 def verify_last(result: TickLastResult, activity: str = "") -> tuple[str, float]:
     """Return (verified status, change_score)."""
     if not result.action:
@@ -31,6 +39,7 @@ def verify_last(result: TickLastResult, activity: str = "") -> tuple[str, float]
     score = change_score(before, after)
     ui_key = (result.ui_key or "").strip()
     act = activity or after.activity or before.activity
+    after_shot = _shot(result, "after")
 
     if result.action in {"wait", "press"}:
         return "unknown", score
@@ -47,10 +56,18 @@ def verify_last(result: TickLastResult, activity: str = "") -> tuple[str, float]
 
     if result.action in {"tap", "like", "like_story", "like_comment"}:
         if ui_key == "comments_icon":
-            ok = is_full_comments_sheet(after, act) or score >= 0.10
+            # Never accept share/repost as comments success.
+            if wrong_sheet(after, screenshot_b64=after_shot, activity=act):
+                return "unverified", score
+            ok = comments_open_ok(after, screenshot_b64=after_shot, activity=act)
+            if not ok:
+                # Legacy a11y path (when tree is populated).
+                ok = is_full_comments_sheet(after, act)
             return ("verified" if ok else "unverified"), score
         if ui_key == "comment_heart" or result.action == "like_comment":
-            ok = is_full_comments_sheet(after, act)
+            ok = comments_open_ok(after, screenshot_b64=after_shot, activity=act) or is_full_comments_sheet(
+                after, act
+            )
             return ("verified" if ok else "unverified"), score
         if ui_key == "nav_reels":
             state = classify_screen(after)
